@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
-use crate::ScanError;
 use crate::TokenType;
 use crate::Token;
 
-
+use crate::error::{Result, Error};
 
 
 struct Tokenizer<'a> {
@@ -26,12 +25,12 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn scan_tokens(&mut self) -> Result<Vec<Token>, ScanError>  {
+    fn scan_tokens(&mut self) -> Result<Vec<Token>>  {
         while !self.is_at_end() {
             self.start = self.current;
             match self.scan_token() {
                 Ok(()) => (),
-                Err(err) => eprintln!("{}", err)
+                Err(err) => return Err(err)
             }
         }
 
@@ -42,7 +41,7 @@ impl<'a> Tokenizer<'a> {
         self.current >= self.source.len()
     }
 
-    fn scan_token(&mut self) -> Result<(), ScanError> {
+    fn scan_token(&mut self) -> Result<()> {
         let c = self.advance();
         match c {
             '(' => self.add_token(TokenType::LeftParen, None),
@@ -101,7 +100,7 @@ impl<'a> Tokenizer<'a> {
                     self.identifier();
                 } else {
                     // Handle unexpected characters
-                    return Err(ScanError)
+                    return Err(Error::ScanError)
                 }
             }
         }
@@ -236,12 +235,6 @@ fn is_alphanumeric(c: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_testing(){
-        println!("HEllo world!"); 
-        ()
-    }
 
     #[test]
     fn test_some_string(){

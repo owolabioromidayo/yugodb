@@ -1,16 +1,8 @@
 pub mod tokenizer;
+pub mod pager;
+pub mod error;
 
 
-use std::fmt;
-
-#[derive(Debug, Clone)]
-struct ScanError;
-
-impl fmt::Display for ScanError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Invalid input string.")
-    }
-}
 
 
 #[derive(Hash, Eq, Debug, PartialEq, Clone, Copy)]
@@ -58,14 +50,6 @@ pub enum TokenType {
 
     Number,
     String,
-
-    // Literals
-    // Identifier(MaybeQuotedBytes<'a>),
-    // String(MaybeQuotedBytes<'a>),
-    // // Blob(HexedBytes<'a>),
-    // // Only contains 0-9 chars.
-    // Integer(&'a [u8]),
-    // Float(&'a [u8]),
     Illegal,
 }
 
