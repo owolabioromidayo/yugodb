@@ -195,20 +195,27 @@ impl BPTreeNode for BPTreeInternalNode{
             for (id, k) in self.keys.iter().enumerate() {
                 if *k > key {
                     curr = self.children[id];
-                    if curr.is_leaf {
+                    if curr.is_leaf() {
                         if curr.values.len() <  M {
                             curr.insert(key, page, offset)
                         } else{
                             // we need to split the leaf node
-                            self.children[id] = self.children.split();
-                            self.children[id].insert(key, page, offset);
-
-
                             //naive, create a new internal node which refs the 2 leaf nodes
+                            self.children[id] = curr.split();
+                            self.children[id].insert(key, page, offset);
 
                         }
                     } else {
-                        self.children[id].insert(key, page, offset);
+                        // check if node is at capacity?
+                        // we need to check if theyre actually populated
+
+                        if curr.is_full() {
+                            self.children[id] = curr.split();
+                            self.children[id].insert(key, page, offset);
+                            
+                        } else{
+                            self.children[id].insert(key, page, offset);
+                        }
                     }
                 }
             }
@@ -233,7 +240,43 @@ impl BPTreeNode for BPTreeInternalNode{
 
     fn split(&self) -> Result<BPTreeInternalNode> { 
         //TODO: important piece of the puzzle
-        unimplemented!(); 
+
+        // do i need a reference to its head? s owe can try insert some things there
+
+        //we'll just split into an internal node referencing 2 internal nodes, then we'll reconsolidate on the other end
+        // like we have to know if we are updating the final value
+        // its just like ensuring the tree is still split the right way
+
+        let mut left_node = BPTreeInternalNode {
+            keys: Vec::new(),
+            is_root: false,
+            children: Vec::new(),
+        };
+
+        let mut right_node = BPTreeInternalNode {
+            keys: Vec::new(),
+            is_root: false,
+            children: Vec::new(),
+        };
+
+        let mid = M / 2;
+        let split_key = self.keys[mid];
+
+         // Move keys and children to the left node
+        left_node.keys = self.keys[..mid].to_vec();
+        left_node.children = self.children[..mid + 1].iter().map(|child| Box::new(child.clone())).collect(); // slow af it seems
+
+        // Move keys and children to the right node
+        right_node.keys = self.keys[mid + 1..].to_vec();
+        right_node.children = self.children[mid + 1..].iter().map(|child| Box::new(child.clone())).collect();
+
+        // Create a new parent node
+        let mut parent_node = BPTreeInternalNode::new(); 
+        parent_node.keys[0] = split_key;
+        parent_node.children[0] = Box::new(left_node);
+        parent_node.children[1] = Box::new(right_node);
+
+        Ok(parent_node)    
     }
 
 
@@ -249,6 +292,16 @@ impl BTreeInternalNode {
     fn split() {}
 
     fn merge() {}
+
+    fn is_full(&self) {
+        let max = 0 ;
+        for (id, k) in self.keys.iter().enumerate() {
+            if k != 0 {
+                max += 1;
+            } 
+        }
+        return max == M
+    }
         
 }
 
