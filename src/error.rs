@@ -6,6 +6,7 @@ pub enum Error{
     FileNotFound,
     IoError(std::io::Error),
     AccessError,
+    NotFound
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -29,6 +30,7 @@ impl std::fmt::Display for Error {
             FileNotFound => write!(f, "File Not found"),
             IoError(err) => write!(f, "IoError: {err}"),
             AccessError => write!(f, "AccessError: Variable could not be accessed."),
+            NotFound => write!(f, "Not found"),
         }
     }
 }

@@ -16,53 +16,74 @@
 //we also need recursive serialization and deserialization
 
 
-const M: u8 = 32;
-//ahh, we should actually be using usize, which will take from the architecture
+//TODO: change page and offset to usize
 
-//the impls im seeing actualy dont store any of this in memory, they read and write from pages instead.
+
+//limitations
+//we only care about keys in increasing order
+// if that is the case, why would a bptree be needed? just need some sort of heap index
+
+
+//must ensure that the nodes fit in pages
+// only the leaf nodes need to fit a whole page block
+// since the internal nodes are so lightweight
+
+
+const M: u8 = 32;
+
+fn insert_sorted<T: Ord>(vec: &mut Vec<T>, value: T) {
+    let index = vec.binary_search(&value).unwrap_or_else(|i| i);
+    vec.insert(index, value);
+}
 
 
 trait BPTreeNode {
     fn new() -> Result<Box<dyn BPTreeNode>, Err>;
 
     fn serialize(&self) -> Vec<u8>;
-    fn deserialize() -> Result<Box<dyn BPTreeNode>, Err>;
+    fn deserialize() -> Result<Box<dyn BPTreeNode>>;
 
-    fn search(&self, key:u8) -> Result<(u8,u8), Err>;
-    fn insert(&self, key:u8, page:u8, offset:u8) -> Result<(), Err>;
+    fn search(&self, key:u8) -> Result<(u8,u8)>;
+    fn insert(&mut self, key:u8, page:u8, offset:u8) -> Result<()>;
 
     fn is_leaf(&self) -> bool;
     fn is_root(&self) -> bool;
+
+    fn split(&mut self) -> Result<BPTreeInternalNode>; 
 }
 
 struct BPTreeInternalNode {
-    keys : [u8; M],
+    keys : vec![u8; M],
     is_root: bool,
-    // children: [Box <dyn BPTreeNode>; M+1],
-    children: [Box <dyn BPTreeNode>; M+1],
+    children: vec![Box <dyn BPTreeNode>; M+1],
 }
 
 struct BPTreeLeafNode {
     values: HashMap<u8, (u8,u8) >, 
-    next_node: Optional<&BPTreeLeafNode> //  LList
-    //do we want backwards links>
+    next_node: Option<&BPTreeLeafNode>, //  LList
+}
+
+struct BPlusTree {
+    root: BPTreeInternalNode
 }
 
 
-impl BTreeNode for BTreeLeafNode{
+impl BPTreeNode for BTreeLeafNode{
 
-    fn new() -> Result<Box<dyn BPTreeNode>, Err>{
+    fn new() -> Result<Box<dyn BPTreeNode>>{
         Box::new(BTreeLeafNode {
+            values: HashMap::new(), // TODO: rename to map?
+            next_node: None
         })
     }
 
-    fn search(key: u8) -> Result<(u8, u8), Err>{
+    fn search(key: u8) -> Result<(u8, u8)>{
 
         if let Some(x) = self.values.get(key) {
             return Ok(*x); 
         }
 
-        Err(Err::NotFound)
+        Error::AccessError
     }
 
     //doing this because I dont want it to affect serialization, might have to think of a better traeoff
@@ -73,21 +94,59 @@ impl BTreeNode for BTreeLeafNode{
     fn serialize(&self) -> Vec<u8> {
         unimplemented!()
     }
-    fn deserialize() -> Result<Box<dyn BPTreeNode>, Err>{
+    fn deserialize() -> Result<Box<dyn BPTreeNode>>{
         unimplemented!()
     }
 
-    fn insert(key:u8, page:u8, offset:u8) -> Result<(), Err> {
+    fn insert(key:u8, page:u8, offset:u8) -> Result<()> {
         //if it makes it all the way here, its fine
         self.values.insert(key, (page, offset));
         Ok()
+    }
+
+    fn split(&mut self) -> Result<BPTreeInternalNode> {
+        let mut keys = self.values.keys().collect();
+        keys.sort();
+        let mid = keys.len() / 2;
+        let middle_key = keys[mid];
+
+        let mut left_map = HashMap::new();
+        let mut right_map = HashMap::new();
+
+        for (key, value) in self.values {
+            if key < *middle_key {
+                left_map.insert(key, value);
+            } else {
+                right_map.insert(key, value);
+            }
+        }
+
+        let new_right_leaf_node = BPTreeLeafNode{
+                values: right,
+                next_node: None,
+            }; 
+
+        let new_left_leaf_node = BPTreeLeafNode{
+                values: left_map,
+                next_node: Some(&new_right_leaf_node),
+            }; 
+
+
+        let new_node = BPTreeInternalNode::new();
+        new_node.keys[0] = middle_key;
+        new_node.children[0] = new_left_leaf_node;
+        new_node.children[1] = new_right_leaf_node; 
+
+        return Ok(new_node);
+
+
     }
 }
 
 
 impl BPTreeNode for BPTreeInternalNode{
 
-    fn new() -> Result<Box<dyn BPTreeNode>, Err>{
+    fn new() -> Result<Box<dyn BPTreeNode>>{
         Box::new(BTreeInternalNode{
             keys: [0 as u8; M],
             //is unsafe code the only way to initialize this
@@ -96,7 +155,7 @@ impl BPTreeNode for BPTreeInternalNode{
     }
 
 
-    fn search(key: u8) -> Result<(u8, u8), Err>{
+    fn search(key: u8) -> Result<(u8, u8)>{
 
         for (id, k) in self.keys.iter().enumerate() {
             if *k > key {
@@ -108,15 +167,57 @@ impl BPTreeNode for BPTreeInternalNode{
 
     }
 
-    fn insert(key:u8, page:u8, offset:u8) -> Result<(), Err> {
+    fn insert(key:u8, page:u8, offset:u8) -> Result<()> {
 
-        for (id, k) in self.keys.iter().enumerate() {
-            if *k > key {
-                return self.children[id].insert(key, page, offset);
+        //top down is worse than splitting upwards it seems
+
+        //okay, so we always insert at the end, that makes sense right
+
+        //try inserting it here
+        if self.children.len()  <  M + 1 {
+            //insert the key and corresponding children in sorted order
+            // insert_sorted(&self.children, key);
+            // let index = self.children.binary_search(&value).unwrap_or_else(|i| i);
+            // self.children.insert(index, value);
+            
+            // create a new child?
+            let new_child = BPTreeInternalNode::new();
+            new_child.keys[0]= key;
+            let new_child_leaf = BPTreeLeafNode::new();
+            new_child_leaf.insert(key, (page, offset));
+            new_child.children[1] = new_child_leaf; 
+
+            self.children.push(new_child);
+
+
+            //expand children vec
+        } else {
+            for (id, k) in self.keys.iter().enumerate() {
+                if *k > key {
+                    curr = self.children[id];
+                    if curr.is_leaf {
+                        if curr.values.len() <  M {
+                            curr.insert(key, page, offset)
+                        } else{
+                            // we need to split the leaf node
+                            self.children[id] = self.children.split();
+                            self.children[id].insert(key, page, offset);
+
+
+                            //naive, create a new internal node which refs the 2 leaf nodes
+
+                        }
+                    } else {
+                        self.children[id].insert(key, page, offset);
+                    }
+                }
             }
+            //check last one 
+            return self.children[self.children.len() -1].insert(key, page, offset);
+
         }
-        //check last one 
-        return self.children[M + 1].insert(key, page, offset);
+
+        //we might have to insert a new key here, which will lead to the splitting operation
 
     }
 
@@ -130,11 +231,16 @@ impl BPTreeNode for BPTreeInternalNode{
         unimplemented!()
     }
 
+    fn split(&self) -> Result<BPTreeInternalNode> { 
+        //TODO: important piece of the puzzle
+        unimplemented!(); 
+    }
 
 
 }
 impl BTreeLeafNode{
 
+    fn split() {}
 }
 
 impl BTreeInternalNode {

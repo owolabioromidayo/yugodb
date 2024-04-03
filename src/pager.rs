@@ -186,13 +186,7 @@ impl Pager  {
             size_kb: INIT_PAGE_COUNT * PAGE_SIZE_KB,
             freelist: (0..INIT_PAGE_COUNT).rev().map( |i| PAGE_SIZE_KB*i).collect()
         } );
-
-        //initialize fileinfo
-        // let file_info = self.file_map.get_mut(&fname).ok_or(Error::Unknown("Could not load FileInfo".to_string()))?;
-        // file_info.freelist.extend((INIT_PAGE_COUNT..0).map( |i| PAGE_SIZE_KB*i)); 
-        // file_info.size_kb = INIT_PAGE_COUNT * PAGE_SIZE_KB; 
-        
-        
+    
         Ok(())
     }
 
