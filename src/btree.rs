@@ -28,20 +28,23 @@
 // only the leaf nodes need to fit a whole page block
 // since the internal nodes are so lightweight
 
+use std::iter;
+use std::collections::HashMap;
+use crate::error::{Result, Error};
 
 const M: u8 = 32;
 
-fn insert_sorted<T: Ord>(vec: &mut Vec<T>, value: T) {
-    let index = vec.binary_search(&value).unwrap_or_else(|i| i);
-    vec.insert(index, value);
+
+enum BPTreeNodeEnum {
+    Internal(BPTreeInternalNode),
+    Leaf(BPTreeLeafNode),
 }
 
-
 trait BPTreeNode {
-    fn new() -> Result<Box<dyn BPTreeNode>, Err>;
+    // fn new() -> Result<BPTreeNodeEnum>;
 
     fn serialize(&self) -> Vec<u8>;
-    fn deserialize() -> Result<Box<dyn BPTreeNode>>;
+    // fn deserialize() -> Result<Box<dyn BPTreeNode>>;
 
     fn search(&self, key:u8) -> Result<(u8,u8)>;
     fn insert(&mut self, key:u8, page:u8, offset:u8) -> Result<()>;
@@ -53,14 +56,14 @@ trait BPTreeNode {
 }
 
 struct BPTreeInternalNode {
-    keys : vec![u8; M],
+    keys : Vec<u8>, // capacity M
     is_root: bool,
-    children: vec![Box <dyn BPTreeNode>; M+1],
+    children: Vec<Option<BPTreeNodeEnum>>, // capacity M+1
 }
 
-struct BPTreeLeafNode {
-    values: HashMap<u8, (u8,u8) >, 
-    next_node: Option<&BPTreeLeafNode>, //  LList
+struct BPTreeLeafNode  {
+    values: HashMap<u8, (u8,u8)>, 
+    next_node: Option<Box<BPTreeLeafNode>>, //  LList
 }
 
 struct BPlusTree {
@@ -68,44 +71,38 @@ struct BPlusTree {
 }
 
 
-impl BPTreeNode for BTreeLeafNode{
+impl BPTreeNode for BPTreeLeafNode{
 
-    fn new() -> Result<Box<dyn BPTreeNode>>{
-        Box::new(BTreeLeafNode {
-            values: HashMap::new(), // TODO: rename to map?
-            next_node: None
-        })
-    }
 
-    fn search(key: u8) -> Result<(u8, u8)>{
+    fn search(&self, key: u8) -> Result<(u8, u8)>{
 
-        if let Some(x) = self.values.get(key) {
+        if let Some(x) = self.values.get(&key) {
             return Ok(*x); 
         }
 
-        Error::AccessError
+        Err(Error::AccessError)
     }
 
     //doing this because I dont want it to affect serialization, might have to think of a better traeoff
-    fn is_root() -> bool { false}
-    fn is_leaf() -> bool { true}
+    fn is_root(&self) -> bool { false}
+    fn is_leaf(&self) -> bool { true}
 
 
     fn serialize(&self) -> Vec<u8> {
         unimplemented!()
     }
-    fn deserialize() -> Result<Box<dyn BPTreeNode>>{
-        unimplemented!()
-    }
+    // fn deserialize() -> Result<Box<dyn BPTreeNode>>{
+    //     unimplemented!()
+    // }
 
-    fn insert(key:u8, page:u8, offset:u8) -> Result<()> {
+    fn insert(&mut self, key:u8, page:u8, offset:u8) -> Result<()> {
         //if it makes it all the way here, its fine
         self.values.insert(key, (page, offset));
-        Ok()
+        Ok(())
     }
 
     fn split(&mut self) -> Result<BPTreeInternalNode> {
-        let mut keys = self.values.keys().collect();
+        let mut keys : Vec<&u8> = self.values.keys().collect();
         keys.sort();
         let mid = keys.len() / 2;
         let middle_key = keys[mid];
@@ -122,20 +119,20 @@ impl BPTreeNode for BTreeLeafNode{
         }
 
         let new_right_leaf_node = BPTreeLeafNode{
-                values: right,
+                values: right_map,
                 next_node: None,
             }; 
 
         let new_left_leaf_node = BPTreeLeafNode{
                 values: left_map,
-                next_node: Some(&new_right_leaf_node),
+                next_node: Some(Box::new(new_right_leaf_node)),
             }; 
 
 
         let new_node = BPTreeInternalNode::new();
-        new_node.keys[0] = middle_key;
-        new_node.children[0] = new_left_leaf_node;
-        new_node.children[1] = new_right_leaf_node; 
+        new_node.keys[0] = middle_key.clone();
+        new_node.children[0] = Some(BPTreeNodeEnum::Leaf(new_left_leaf_node));
+        new_node.children[1] = Some(BPTreeNodeEnum::Leaf(new_left_leaf_node)); 
 
         return Ok(new_node);
 
@@ -146,35 +143,39 @@ impl BPTreeNode for BTreeLeafNode{
 
 impl BPTreeNode for BPTreeInternalNode{
 
-    fn new() -> Result<Box<dyn BPTreeNode>>{
-        Box::new(BTreeInternalNode{
-            keys: [0 as u8; M],
-            //is unsafe code the only way to initialize this
-            // children: [Box::new(Default::default)]
-        })
-    }
 
 
-    fn search(key: u8) -> Result<(u8, u8)>{
+    fn search(&self, key: u8) -> Result<(u8, u8)>{
 
         for (id, k) in self.keys.iter().enumerate() {
             if *k > key {
-                return self.children[id].search(key);
+                if let Some(x) = self.children[id]{ 
+                    match x {
+                        BPTreeNodeEnum::Leaf(y) => return y.search(key),
+                        BPTreeNodeEnum::Internal(y) => return y.search(key)
+                    }
+                }
             }
         }
         //check last one 
-        return self.children[M + 1].search(key);
+        if let Some(x) = self.children[M as usize + 1]{ 
+            match x {
+                BPTreeNodeEnum::Leaf(y) => return y.search(key),
+                BPTreeNodeEnum::Internal(y) => return y.search(key)
+            }
+        }
 
+        Err(Error::NotFound)
     }
 
-    fn insert(key:u8, page:u8, offset:u8) -> Result<()> {
+    fn insert(&mut self, key:u8, page:u8, offset:u8) -> Result<()> {
 
         //top down is worse than splitting upwards it seems
 
         //okay, so we always insert at the end, that makes sense right
 
         //try inserting it here
-        if self.children.len()  <  M + 1 {
+        if self.children.len()  <  (M + 1).into() {
             //insert the key and corresponding children in sorted order
             // insert_sorted(&self.children, key);
             // let index = self.children.binary_search(&value).unwrap_or_else(|i| i);
@@ -184,37 +185,43 @@ impl BPTreeNode for BPTreeInternalNode{
             let new_child = BPTreeInternalNode::new();
             new_child.keys[0]= key;
             let new_child_leaf = BPTreeLeafNode::new();
-            new_child_leaf.insert(key, (page, offset));
-            new_child.children[1] = new_child_leaf; 
+            new_child_leaf.insert(key, page, offset);
+            new_child.children[1] = Some(Box::new(new_child_leaf)); 
 
-            self.children.push(new_child);
+            self.children.push(Some(Box::new(new_child)));
 
+            Ok(())
 
             //expand children vec
         } else {
             for (id, k) in self.keys.iter().enumerate() {
                 if *k > key {
-                    curr = self.children[id];
-                    if curr.is_leaf() {
-                        if curr.values.len() <  M {
-                            curr.insert(key, page, offset)
-                        } else{
-                            // we need to split the leaf node
-                            //naive, create a new internal node which refs the 2 leaf nodes
-                            self.children[id] = curr.split();
-                            self.children[id].insert(key, page, offset);
+                    if let Some(curr) = self.children[id]{
+                        if curr.is_leaf() {
 
-                        }
-                    } else {
-                        // check if node is at capacity?
-                        // we need to check if theyre actually populated
-
-                        if curr.is_full() {
-                            self.children[id] = curr.split();
-                            self.children[id].insert(key, page, offset);
                             
-                        } else{
-                            self.children[id].insert(key, page, offset);
+
+                            let curr2 = curr.downcast::<BPTreeLeafNode>()?;
+                            if curr.values.len() <  M {
+                                curr.insert(key, page, offset)
+                            } else{
+                                // we need to split the leaf node
+                                //naive, create a new internal node which refs the 2 leaf nodes
+                                self.children[id] = curr.split();
+                                self.children[id].insert(key, page, offset);
+
+                            }
+                        } else {
+                            // check if node is at capacity?
+                            // we need to check if theyre actually populated
+
+                            if curr.is_full() {
+                                self.children[id] = curr.split();
+                                self.children[id].insert(key, page, offset);
+                                
+                            } else{
+                                self.children[id].insert(key, page, offset);
+                            }
                         }
                     }
                 }
@@ -228,17 +235,17 @@ impl BPTreeNode for BPTreeInternalNode{
 
     }
 
-    fn is_root() -> bool { self.is_root }
-    fn is_leaf() -> bool { false }
+    fn is_root(&self) -> bool { self.is_root }
+    fn is_leaf(&self) -> bool { false }
 
     fn serialize(&self) -> Vec<u8> {
         unimplemented!()
     }
-    fn deserialize() -> Result<Box<dyn BPTreeNode>, Err>{
-        unimplemented!()
-    }
+    // fn deserialize() -> Result<Box<dyn BPTreeNode>>{
+    //     unimplemented!()
+    // }
 
-    fn split(&self) -> Result<BPTreeInternalNode> { 
+    fn split(&mut self) -> Result<BPTreeInternalNode> { 
         //TODO: important piece of the puzzle
 
         // do i need a reference to its head? s owe can try insert some things there
@@ -281,19 +288,28 @@ impl BPTreeNode for BPTreeInternalNode{
 
 
 }
-impl BTreeLeafNode{
+impl BPTreeLeafNode{
+    fn new() -> BPTreeLeafNode{
+        BPTreeLeafNode {
+            values: HashMap::new(), // TODO: rename to map?
+            next_node: None
+        }
+    }
 
-    fn split() {}
 }
 
-impl BTreeInternalNode {
-
-
-    fn split() {}
+impl BPTreeInternalNode {
+    
+    fn new() -> BPTreeInternalNode {
+        BPTreeInternalNode{
+            keys: [0 as u8; M],
+            children: [Box::new(Default::default)]
+        }
+    }
 
     fn merge() {}
 
-    fn is_full(&self) {
+    fn is_full(&self) -> bool {
         let max = 0 ;
         for (id, k) in self.keys.iter().enumerate() {
             if k != 0 {
@@ -306,13 +322,68 @@ impl BTreeInternalNode {
 }
 
 #[cfg(test)]
-
-mod test {
+mod tests {
     use super::*;
-    use std::any::TypeId;
 
     #[test]
-    fn test_new_btree_node(){
-        assert_eq!( TypeId::of::<BTreeNode>(), BTreenNode::new());
+    fn test_leaf_node_insert_and_search() {
+        let mut leaf_node = BPTreeLeafNode::new();
+        leaf_node.insert(10, 1, 0);
+        leaf_node.insert(20, 2, 0);
+        leaf_node.insert(30, 3, 0);
+
+        assert_eq!(leaf_node.search(10), Some((1, 0)));
+        assert_eq!(leaf_node.search(20), Some((2, 0)));
+        assert_eq!(leaf_node.search(30), Some((3, 0)));
+        assert_eq!(leaf_node.search(40), None);
     }
+
+    // #[test]
+    // fn test_internal_node_insert_and_search() {
+    //     let mut internal_node = BPTreeInternalNode::new();
+    //     let mut leaf_node1 = BPTreeLeafNode::new();
+    //     let mut leaf_node2 = BPTreeLeafNode::new();
+
+    //     leaf_node1.insert(10, 1, 0);
+    //     leaf_node1.insert(20, 2, 0);
+    //     leaf_node2.insert(30, 3, 0);
+    //     leaf_node2.insert(40, 4, 0);
+
+    //     internal_node.keys[0] = 30;
+    //     internal_node.children.push(Box::new(leaf_node1));
+    //     internal_node.children.push(Box::new(leaf_node2));
+
+    //     assert_eq!(internal_node.search(10), Some((1, 0)));
+    //     assert_eq!(internal_node.search(20), Some((2, 0)));
+    //     assert_eq!(internal_node.search(30), Some((3, 0)));
+    //     assert_eq!(internal_node.search(40), Some((4, 0)));
+    //     assert_eq!(internal_node.search(50), None);
+    // }
+
+    // #[test]
+    // fn test_split_leaf_node() {
+    //     let mut leaf_node = BPTreeLeafNode::new();
+    //     leaf_node.insert(10, 1, 0);
+    //     leaf_node.insert(20, 2, 0);
+    //     leaf_node.insert(30, 3, 0);
+    //     leaf_node.insert(40, 4, 0);
+    //     leaf_node.insert(50, 5, 0);
+
+    //     let new_node = leaf_node.split().unwrap();
+    //     let internal_node = new_node.as_any().downcast_ref::<BPTreeInternalNode>().unwrap();
+
+    //     assert_eq!(internal_node.keys[0], 30);
+    //     assert_eq!(internal_node.children.len(), 2);
+
+    //     let left_child = internal_node.children[0].as_any().downcast_ref::<BPTreeLeafNode>().unwrap();
+    //     assert_eq!(left_child.values.len(), 2);
+    //     assert_eq!(left_child.search(10), Some((1, 0)));
+    //     assert_eq!(left_child.search(20), Some((2, 0)));
+
+    //     let right_child = internal_node.children[1].as_any().downcast_ref::<BPTreeLeafNode>().unwrap();
+    //     assert_eq!(right_child.values.len(), 3);
+    //     assert_eq!(right_child.search(30), Some((3, 0)));
+    //     assert_eq!(right_child.search(40), Some((4, 0)));
+    //     assert_eq!(right_child.search(50), Some((5, 0)));
+    // }
 }
