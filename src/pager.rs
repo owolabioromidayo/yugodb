@@ -22,10 +22,10 @@ struct FileInfo{
 }
 
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Page {
     index: usize,
-    bytes: [u8; PAGE_SIZE_BYTES],
+    bytes: Vec<u8>,
     dirty: bool,
 }
 
@@ -71,17 +71,6 @@ impl Pager  {
     }
 
     fn create_new_page(&mut self) -> Result<Page> {
-        //how do we create a new page in a file
-        // unimplemented!()
-
-        // check freelist and try to acquire a page there
-        // if no space in freelist, extend file if num pages less than page count limit
-
-        //otherwise, create a new file and create the page there
-
-        // a page number should be allocated and stored somewhere
-
-        println!("Just flat out failing? OKay"); 
 
         let file_with_free_page = self.file_map.iter_mut().find(|(_, info)| !info.freelist.is_empty());
 
@@ -93,7 +82,7 @@ impl Pager  {
             
             let page = Page {
                 index: page_index,
-                bytes: [0u8; PAGE_SIZE_BYTES],
+                bytes: vec![0u8; PAGE_SIZE_BYTES],
                 dirty: true,
             };
 
@@ -136,7 +125,7 @@ impl Pager  {
 
                 let page = Page {
                     index: self.page_count,
-                    bytes: [0u8; PAGE_SIZE_BYTES],
+                    bytes: vec![0u8; PAGE_SIZE_BYTES],
                     dirty: true,
                 };
 
@@ -154,10 +143,12 @@ impl Pager  {
                 let file_info = self.file_map.get_mut(&new_file_name).ok_or(Error::AccessError)?;
                 let page_index = self.page_count;
                 let page_offset = file_info.freelist.pop().unwrap();
+
+                //so it must be getting no pop from here
                 
                 let page = Page {
                     index: page_index,
-                    bytes: [0u8; PAGE_SIZE_BYTES],
+                    bytes: vec![0u8; PAGE_SIZE_BYTES],
                     dirty: true,
                 };
                 print!("sjgskfj made it this far [e, this is the first time, so we are doing this");
@@ -179,6 +170,7 @@ impl Pager  {
         file_info.freelist.push(*offset);
 
         self.page_index_map.remove(&page.index);
+        self.page_count -= 1;
 
         Ok(())
 
@@ -190,12 +182,16 @@ impl Pager  {
         let data = vec![0 as u8; PAGE_SIZE_BYTES*INIT_PAGE_COUNT]; // initialize with 24 pages
         file.write_all(&data).unwrap();    
 
-        self.file_map.insert(fname.clone(), FileInfo::new());
+        self.file_map.insert(fname.clone(), FileInfo {
+            size_kb: INIT_PAGE_COUNT * PAGE_SIZE_KB,
+            freelist: (0..INIT_PAGE_COUNT).rev().map( |i| PAGE_SIZE_KB*i).collect()
+        } );
 
         //initialize fileinfo
-        let file_info = self.file_map.get_mut(&fname).ok_or(Error::Unknown("Could not load FileInfo".to_string()))?;
-        file_info.freelist.extend((INIT_PAGE_COUNT..0).map( |i| PAGE_SIZE_KB*i)); 
-        file_info.size_kb = INIT_PAGE_COUNT * PAGE_SIZE_KB; 
+        // let file_info = self.file_map.get_mut(&fname).ok_or(Error::Unknown("Could not load FileInfo".to_string()))?;
+        // file_info.freelist.extend((INIT_PAGE_COUNT..0).map( |i| PAGE_SIZE_KB*i)); 
+        // file_info.size_kb = INIT_PAGE_COUNT * PAGE_SIZE_KB; 
+        
         
         Ok(())
     }
@@ -248,7 +244,7 @@ impl PageCache {
             self.loaded_pages.remove(&lru_key);
         }
 
-        self.loaded_pages.insert(page.index, (*page, self.counter));
+        self.loaded_pages.insert(page.index, (page.clone(), self.counter));
         self.counter += 1;        
         
         Ok(())
@@ -276,11 +272,11 @@ mod tests {
         println!("We are going now!");
         let mut pager = Pager::new("testasdas".to_string());
         let page = pager.create_new_page().unwrap();
-        // assert_eq!(page.index, 0);
-        // assert_eq!(pager.page_count, 1);
+        assert_eq!(page.index, 0);
+        assert_eq!(pager.page_count, 1);
 
-        // pager.delete_page(page).unwrap();
-        // assert_eq!(pager.page_count, 0);
+        pager.delete_page(page).unwrap();
+        assert_eq!(pager.page_count, 0);
     }
 
     // #[test]
