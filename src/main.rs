@@ -2,7 +2,8 @@ use std::thread;
 use std::net::{TcpListener, TcpStream, Shutdown};
 use std::io::{Read, Write};
 
-use yugodb::tokenizer; 
+use yugodb::lang::tokenizer; 
+use yugodb::lang::parser; 
 
 fn handle_client(mut stream: TcpStream) {
     let mut buffer = [0 as u8; 1024]; 
