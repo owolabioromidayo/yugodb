@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::TokenType;
-use crate::Token;
+use crate::lang::types::*; 
+
 
 use crate::error::{Result, Error};
 
@@ -34,6 +34,7 @@ impl<'a> Tokenizer<'a> {
             }
         }
 
+        self.add_token(TokenType::Eof, None); 
         Ok(self.tokens.clone())
     }
 
@@ -49,9 +50,9 @@ impl<'a> Tokenizer<'a> {
             ',' => self.add_token(TokenType::Comma, None),
             '.' => self.add_token(TokenType::Dot, None),
             '-' => self.add_token(TokenType::Minus, None),
-            // '+' => self.add_token(TokenType::Plus, None),
+            '+' => self.add_token(TokenType::Plus, None),
             ';' => self.add_token(TokenType::Semicolon, None),
-            // '*' => self.add_token(TokenType::Asterisk, None),
+            '*' => self.add_token(TokenType::Asterisk, None),
             '=' => self.add_token(TokenType::Equal, None),
             '!' => {
                 let token = if self.match_char('=') {
@@ -84,6 +85,7 @@ impl<'a> Tokenizer<'a> {
                         self.advance();
                     }
                 } else {
+                    self.add_token(TokenType::Slash, None);
                 }
             }
             ' ' | '\r' | '\t' => {
@@ -93,6 +95,7 @@ impl<'a> Tokenizer<'a> {
                 self.line += 1;
             }
             '\'' => self.string(),
+            '"' => self.string(),
             _ => {
                 if is_digit(c) {
                     self.number();
@@ -133,9 +136,16 @@ impl<'a> Tokenizer<'a> {
             // ("PRIMARY" , TokenType::Primary ),
             ("SELECT" , TokenType::Select ),
             ("TABLE" , TokenType::Table ),
+            ("true" , TokenType::True),
+            ("false" , TokenType::False),
+            ("||" , TokenType::Or ),
+            ("&&" , TokenType::And ),
             // ("VALUES" , TokenType::Values ),
             // ("WHERE" , TokenType::Where ),
         ]);
+
+        let methods = vec!["orderby", "groupby", "filter", "select", "select_distinct",
+                "offset", "limit", "max", "min", "sum", "count", "count_distinct"]; 
 
         let token = keywords.get(&text as &str);
         
@@ -149,9 +159,31 @@ impl<'a> Tokenizer<'a> {
         }
         else if text.contains('.') {
             //is attribute
-            self.add_token(TokenType::Attribute, Some(text))
+            if self.peek() == '(' {
+                //this means the last part of the attr is a method
+                let parts: Vec<&str> = text.rsplitn(2, '.').collect();
+                let first_part = parts.last().unwrap_or(&"");
+                let second_part = parts.first().unwrap_or(&"");
+
+                self.add_token(TokenType::Attribute, Some(first_part.to_string())); 
+
+                //we need to ensure method validity
+                if methods.contains(second_part){
+                    self.add_token(TokenType::Method, Some(second_part.to_string()));
+                } else{
+                    //we need some illegal method error preferraably
+                    self.add_token(TokenType::Illegal, Some(second_part.to_string()));
+                }
+
+
+
+            } else {
+                self.add_token(TokenType::Attribute, Some(text))
+            }
         } else  if text.chars().all(char::is_alphabetic) {
             // check if valid var expression
+            // yeah so theeres no way a variable could be potentially a method then, since no . , no 
+            // funny business
             self.add_token(TokenType::Variable, Some(text))
         } else {
                 // probably illegal right

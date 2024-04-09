@@ -18,13 +18,21 @@ pub enum TokenType {
     Join,
     Ljoin,
 
+    //most of these things have not been introduced into the tokenizer
     Attribute,
-    Variable, 
+    Variable,
+    Method, // we can tokenize this right?
     Let,
+
+    Eof,
+    Or,
+    And,
+
+    Slash,
+    Star,
 
 
     // Symbols
-    Space,
     LeftParen,
     RightParen,
     Asterisk,
@@ -48,19 +56,23 @@ pub enum TokenType {
     Number,
     String,
     Boolean,
+
+    True,
+    False,
+
     Illegal,
 }
 
 #[derive(Debug, Clone)]
 pub struct Token {
-    _type : TokenType,
+    pub _type : TokenType,
     lexeme : String,
     pub literal : Option<String>, 
     pub line : usize,
 } 
 
 impl Token {
-    fn new(token_type: TokenType, text: String, literal: Option<String>, line: usize) -> Token {
+    pub fn new(token_type: TokenType, text: String, literal: Option<String>, line: usize) -> Token {
         Token {
             _type: token_type,
             lexeme: text, 
@@ -70,8 +82,8 @@ impl Token {
     }
     pub fn to_string(&self) -> String {
         format!(
-            "{:?} {} {}",
-            self.token_type, self.lexeme, self.literal
+            "{:?} {} {:?}",
+            self._type, self.lexeme, self.literal
         )
     }
 
@@ -81,12 +93,14 @@ impl Token {
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+
+
 pub enum ValueType {
     String,
     Number,
     Nil,
     Boolean,
-    Callable,
+    Callable, 
 }
 
 impl fmt::Display for ValueType {
@@ -110,6 +124,7 @@ pub enum ValueData {
     Number(f64),
     String(String),
     Bool(bool),
+    //TODO: put our data types here? like NUmeric and Date and ID?
 }
 
 impl Value {
@@ -146,7 +161,7 @@ impl Value {
             ValueData::Number(number) => number.to_string(),
             ValueData::String(string) => string.clone(),
             ValueData::Bool(bool_) => bool_.to_string(),
-            ValueData::Callable(callable) => callable.to_string(),
+            // ValueData::Callable(callable) => callable.to_string(),
         }
     }
 }
@@ -160,6 +175,8 @@ pub trait ExprVisitor<T> {
     fn visit_variable(&mut self, expr: &Variable) -> T;
     fn visit_assign(&mut self, expr: &Assign) -> T;
     fn visit_logical_expr(&mut self, expr: &Logical) -> T;
+    fn visit_data_call(&mut self, expr: &DataCall) -> T;
+    fn visit_data_expr(&mut self, expr: &DataExpr) -> T;
 }
 
 pub trait StmtVisitor {
@@ -176,10 +193,12 @@ pub enum Expr {
     Grouping(Grouping),
     Literal(Literal),
     Unary(Unary),
-    Call(Call),
+    // Call(Call),
     Variable(Variable),
     Assign(Assign),
     Logical(Logical),
+    DataCall(DataCall),
+    DataExpr(DataExpr)
 }
 
 impl Expr {
@@ -189,21 +208,29 @@ impl Expr {
             Expr::Grouping(expr) => visitor.visit_grouping(expr),
             Expr::Literal(expr) => visitor.visit_literal(expr),
             Expr::Unary(expr) => visitor.visit_unary(expr),
-            Expr::Call(expr) => visitor.visit_call_expr(expr),
+            // Expr::Call(expr) => visitor.visit_call_expr(expr),
             Expr::Variable(expr) => visitor.visit_variable(expr),
             Expr::Assign(expr) => visitor.visit_assign(expr),
             Expr::Logical(expr) => visitor.visit_logical_expr(expr),
+            Expr::DataCall(expr) => visitor.visit_data_call(expr),
+            Expr::DataExpr(expr) => visitor.visit_data_expr(expr),
         }
     }
 }
 
 pub struct DataExpr {
-
+   pub left: Box<Expr>,
+   pub right: Box<Expr>,
+   pub join: Token,
+   pub join_expr: Box<Expr>
 }
 
-pub struct DataCallExpr {
-
+pub struct DataCall {
+    pub attr: Token, // attr / left
+    pub arguments: Vec<Expr>,
 }
+
+
 pub struct Binary {
     pub left: Box<Expr>,
     pub operator: Token,
@@ -215,7 +242,7 @@ pub struct Grouping {
 }
 
 pub struct Literal {
-    pub value: String,
+    pub value: Value,
     pub literal_type: TokenType,
 }
 
@@ -250,12 +277,13 @@ pub enum Stmt {
     Expression(ExprStmt),
     Print(PrintStmt),
     Var(VarStmt),
-    Block(BlockStmt),
-    If(IfStmt),
-    While(WhileStmt),
-    Function(FunctionStmt),
-    Return(ReturnStmt),
+    // Block(BlockStmt),
+    // If(IfStmt),
+    // While(WhileStmt),
+    // Function(FunctionStmt),
+    // Return(ReturnStmt),
 }
+
 
 impl Stmt {
     pub fn accept(&self, visitor: &mut dyn StmtVisitor) {
@@ -263,14 +291,24 @@ impl Stmt {
             Stmt::Expression(stmt) => visitor.visit_expr_stmt(stmt),
             Stmt::Print(stmt) => visitor.visit_print_stmt(stmt),
             Stmt::Var(stmt) => visitor.visit_var_stmt(stmt),
-            Stmt::Block(stmt) => visitor.visit_block_stmt(stmt),
-            Stmt::If(stmt) => visitor.visit_if_stmt(stmt),
-            Stmt::While(stmt) => visitor.visit_while_stmt(stmt),
-            Stmt::Function(stmt) => visitor.visit_function_stmt(stmt),
-            Stmt::Return(stmt) => visitor.visit_return_stmt(stmt),
+            // Stmt::Block(stmt) => visitor.visit_block_stmt(stmt),
+            // Stmt::If(stmt) => visitor.visit_if_stmt(stmt),
+            // Stmt::While(stmt) => visitor.visit_while_stmt(stmt),
+            // Stmt::Function(stmt) => visitor.visit_function_stmt(stmt),
+            // Stmt::Return(stmt) => visitor.visit_return_stmt(stmt),
         }
     }
 }
+
+impl Literal {
+    pub fn new(value: Value, _type: TokenType) -> Self {
+        Self { 
+            value,
+            literal_type: _type
+        }
+    }
+}
+
 
 pub struct ExprStmt {
     pub expression: Expr,
