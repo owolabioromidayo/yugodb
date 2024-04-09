@@ -6,7 +6,7 @@ use crate::lang::types::*;
 use crate::error::{Result, Error};
 
 
-struct Tokenizer<'a> {
+pub struct Tokenizer<'a> {
     source: &'a str,
     tokens: Vec<Token>,
     start: usize,
@@ -15,7 +15,7 @@ struct Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
-    fn new(source: &'a str) -> Tokenizer<'a> {
+    pub fn new(source: &'a str) -> Tokenizer<'a> {
         Tokenizer {
             source,
             tokens: Vec::new(),
@@ -25,7 +25,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn scan_tokens(&mut self) -> Result<Vec<Token>>  {
+    pub fn scan_tokens(&mut self) -> Result<Vec<Token>>  {
         while !self.is_at_end() {
             self.start = self.current;
             match self.scan_token() {
@@ -140,6 +140,7 @@ impl<'a> Tokenizer<'a> {
             ("false" , TokenType::False),
             ("||" , TokenType::Or ),
             ("&&" , TokenType::And ),
+            ("let", TokenType::Let),
             // ("VALUES" , TokenType::Values ),
             // ("WHERE" , TokenType::Where ),
         ]);
@@ -152,10 +153,6 @@ impl<'a> Tokenizer<'a> {
         if &text == "true" || &text == "false" {
             self.add_token(TokenType::Boolean, Some(text)); 
 
-        }
-        else if let Some(x) = token {
-            // Special identifier
-            self.add_token(x.clone(), Some(text)); 
         }
         else if text.contains('.') {
             //is attribute
@@ -180,6 +177,10 @@ impl<'a> Tokenizer<'a> {
             } else {
                 self.add_token(TokenType::Attribute, Some(text))
             }
+        }else if let Some(x) = token {
+            // Special identifier
+            self.add_token(x.clone(), Some(text)); 
+
         } else  if text.chars().all(char::is_alphabetic) {
             // check if valid var expression
             // yeah so theeres no way a variable could be potentially a method then, since no . , no 
@@ -293,7 +294,11 @@ mod tests {
 
     #[test]
     fn test_some_string(){
-        let mut tokenizer = Tokenizer::new("let x = super.TABLES.b.filter( |x| x < 2)");
+        let mut tokenizer = Tokenizer::new("
+        let x = db.TABLES.b.filter(); 
+        let y = db.TABLES.x ; 
+        let z = x JOIN y on x.id=y.id;  x.select(a,b,c,d);
+        ");
         let tokens = tokenizer.scan_tokens().unwrap();
         println!("Tokens: {:?}", tokens);
         ()

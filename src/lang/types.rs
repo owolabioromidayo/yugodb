@@ -95,6 +95,7 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq)]
 
 
+
 pub enum ValueType {
     String,
     Number,
@@ -115,11 +116,15 @@ impl fmt::Display for ValueType {
     }
 }
 
+
+#[derive(Debug)]
 pub struct Value {
     pub value_type: ValueType,
     pub value: ValueData,
 }
 
+
+#[derive(Debug)]
 pub enum ValueData {
     Number(f64),
     String(String),
@@ -173,6 +178,7 @@ pub trait ExprVisitor<T> {
     fn visit_call_expr(&mut self, expr: &Call) -> T;
     fn visit_unary(&mut self, expr: &Unary) -> T;
     fn visit_variable(&mut self, expr: &Variable) -> T;
+    fn visit_attribute(&mut self, expr: &Attribute) -> T;
     fn visit_assign(&mut self, expr: &Assign) -> T;
     fn visit_logical_expr(&mut self, expr: &Logical) -> T;
     fn visit_data_call(&mut self, expr: &DataCall) -> T;
@@ -188,6 +194,8 @@ pub trait StmtVisitor {
     // fn visit_return_stmt(&mut self, stmt: &ReturnStmt);
 }
 
+
+#[derive(Debug)]
 pub enum Expr {
     Binary(Binary),
     Grouping(Grouping),
@@ -198,7 +206,8 @@ pub enum Expr {
     Assign(Assign),
     Logical(Logical),
     DataCall(DataCall),
-    DataExpr(DataExpr)
+    DataExpr(DataExpr),
+    Attribute(Attribute),
 }
 
 impl Expr {
@@ -210,6 +219,7 @@ impl Expr {
             Expr::Unary(expr) => visitor.visit_unary(expr),
             // Expr::Call(expr) => visitor.visit_call_expr(expr),
             Expr::Variable(expr) => visitor.visit_variable(expr),
+            Expr::Attribute(expr) => visitor.visit_attribute(expr),
             Expr::Assign(expr) => visitor.visit_assign(expr),
             Expr::Logical(expr) => visitor.visit_logical_expr(expr),
             Expr::DataCall(expr) => visitor.visit_data_call(expr),
@@ -218,6 +228,8 @@ impl Expr {
     }
 }
 
+
+#[derive(Debug)]
 pub struct DataExpr {
    pub left: Box<Expr>,
    pub right: Box<Expr>,
@@ -225,47 +237,70 @@ pub struct DataExpr {
    pub join_expr: Box<Expr>
 }
 
+
+#[derive(Debug)]
 pub struct DataCall {
-    pub attr: Token, // attr / left
+    pub attr: Vec<Token>, // attr / left
+    pub method: Token,
     pub arguments: Vec<Expr>,
 }
 
 
+
+#[derive(Debug)]
 pub struct Binary {
     pub left: Box<Expr>,
     pub operator: Token,
     pub right: Box<Expr>,
 }
 
+
+#[derive(Debug)]
 pub struct Grouping {
     pub expression: Box<Expr>,
 }
 
+
+#[derive(Debug)]
 pub struct Literal {
     pub value: Value,
     pub literal_type: TokenType,
 }
 
+
+#[derive(Debug)]
 pub struct Unary {
     pub operator: Token,
     pub right: Box<Expr>,
 }
 
+
+#[derive(Debug)]
 pub struct Call {
     pub callee: Box<Expr>,
     pub paren: Token,
     pub arguments: Vec<Expr>,
 }
 
+
+#[derive(Debug)]
 pub struct Variable {
     pub name: Token,
 }
 
+#[derive(Debug)]
+pub struct Attribute{
+    pub tokens : Vec<Token>
+}
+
+#[derive(Debug)]
 pub struct Assign {
     pub name: Token,
     pub value: Box<Expr>,
 }
 
+
+#[derive(Debug)]
 pub struct Logical {
     pub left: Box<Expr>,
     pub operator: Token,
@@ -273,6 +308,7 @@ pub struct Logical {
 }
 
 
+#[derive(Debug)]
 pub enum Stmt {
     Expression(ExprStmt),
     Print(PrintStmt),
@@ -283,7 +319,6 @@ pub enum Stmt {
     // Function(FunctionStmt),
     // Return(ReturnStmt),
 }
-
 
 impl Stmt {
     pub fn accept(&self, visitor: &mut dyn StmtVisitor) {
@@ -310,40 +345,56 @@ impl Literal {
 }
 
 
+
+#[derive(Debug)]
 pub struct ExprStmt {
     pub expression: Expr,
 }
 
+
+#[derive(Debug)]
 pub struct PrintStmt {
     pub expression: Expr,
 }
 
+
+#[derive(Debug)]
 pub struct VarStmt {
     pub name: Token,
-    pub initializer: Option<Expr>,
+    pub initializer: Expr,
 }
 
+
+#[derive(Debug)]
 pub struct BlockStmt {
     pub statements: Vec<Stmt>,
 }
 
+
+#[derive(Debug)]
 pub struct IfStmt {
     pub condition: Expr,
     pub then_branch: Box<Stmt>,
     pub else_branch: Option<Box<Stmt>>,
 }
 
+
+#[derive(Debug)]
 pub struct WhileStmt {
     pub condition: Expr,
     pub body: Box<Stmt>,
 }
 
+
+#[derive(Debug)]
 pub struct FunctionStmt {
     pub name: Token,
     pub params: Vec<Token>,
     pub body: Vec<Stmt>,
 }
 
+
+#[derive(Debug)]
 pub struct ReturnStmt {
     pub keyword: Token,
     pub value: Option<Expr>,

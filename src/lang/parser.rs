@@ -1,5 +1,6 @@
 use std::vec::Vec;
 use crate::lang::types::*; 
+use crate::lang::tokenizer::*; 
 // use crate::token::{Token, TokenType};
 // use crate::expr::{Expr, Literal, Variable, Grouping, Unary, Binary, Logical, Call, Assign};
 // use crate::stmt::{Stmt, ExprStmt, PrintStmt, VarStmt, BlockStmt, IfStmt, WhileStmt, FunctionStmt, ReturnStmt};
@@ -23,7 +24,7 @@ impl Parser {
     }
 
     fn declaration(&mut self) -> Stmt {
-        if self.match_token(TokenType::Variable) {
+        if self.match_token(TokenType::Let) {
             self.var_declaration()
         // } else if self.match_token(TokenType::FUN) {
         //     self.fun_declaration("function")
@@ -61,14 +62,14 @@ impl Parser {
     // }
 
     fn var_declaration(&mut self) -> Stmt {
-        self.consume(TokenType::Let, "Expect 'let' in variable declaration");
+        // self.consume(TokenType::Let, "Expect 'let' in variable declaration");
 
         let name = self.consume(TokenType::Variable, "Expect variable name.");
 
         let initializer = if self.match_token(TokenType::Equal) {
-            Some(self.data_expr())
+            self.data_expr()
         } else {
-            None
+            self.error(self.peek(), "Expected some var initializer");
         };
         self.consume(TokenType::Semicolon, "Expect ';' after variable declaration.");
         Stmt::Var(VarStmt { name, initializer })
@@ -140,20 +141,49 @@ impl Parser {
         } else {
             //TODO: realistically, variables should be grouped under attributes
             //nvm, it cant be a variable at this point because of the method call, thats illegal
-            let left =  self.consume(TokenType::Attribute, "Expected an attribute "); 
-            //check if method
-            if self.check(TokenType::Method) {
-                let m = self.consume(TokenType::Method, "Method should be consumed herer");
 
-                self.consume(TokenType::LeftParen, "Expected '(' for method"); 
-                    //now we parse the arguments
-                let arguments = self.arguments();
+            //parse out the attr and the method
+            //TODO: make variables attributes
 
-                Expr::DataCall( DataCall { attr: left, arguments: arguments } ) 
-                       
-            } else {
-                 Expr::Variable(Variable { name: left })
+            println!("{:?}", self.peek());
+            let left =  self.consume(TokenType::Variable, "Expected a variable"); 
+
+            if self.peek()._type == TokenType::Semicolon {
+                return Expr::Variable(Variable { name: left })
+            } 
+
+            let mut a = Vec::new(); 
+            a.push(left);
+            self.consume(TokenType::Dot, "Expected a Dot");
+
+            while !self.check(TokenType::LeftParen) { 
+                a.push(self.consume(TokenType::Variable, "Expected a var")); 
+                if self.check(TokenType::Dot){
+                    self.consume(TokenType::Dot, "Expected a Dot");
+                }
             }
+            //join everything inside an attr
+            let new_method = a.pop().unwrap(); 
+
+            //create the method type
+            self.consume(TokenType::LeftParen, "Expected '(' for method"); 
+                //now we parse the arguments
+            let arguments = self.arguments();
+
+            Expr::DataCall( DataCall { attr: a, method: new_method ,  arguments: arguments } ) 
+            //check if method (not needed)
+            // if self.check(TokenType::Method) {
+            //     let m = self.consume(TokenType::Method, "Method should be consumed herer");
+
+            //     self.consume(TokenType::LeftParen, "Expected '(' for method"); 
+            //         //now we parse the arguments
+            //     let arguments = self.arguments();
+
+            //     Expr::DataCall( DataCall { attr: left, arguments: arguments } ) 
+                       
+            // } else {
+            //      Expr::Variable(Variable { name: left })
+            // }
 
         
 
@@ -327,7 +357,8 @@ impl Parser {
             })
         } else {
             // self.call()
-            self.error(self.peek(), "Expected unary expr");
+            return self.primary();
+            // self.error(self.peek(), "Expected unary expr");
         }
     }
 
@@ -355,9 +386,10 @@ impl Parser {
         if self.match_token(TokenType::Null) {
             return Expr::Literal(Literal::new( Value::new_nil(), TokenType::Null)) ;
         }
-        if self.match_token(TokenType::Attribute) {
-            return Expr::Variable(Variable { name: self.previous().clone() });
-        }
+        //TODO
+        // if self.match_token(TokenType::Attribute) {
+        //     return Expr::Attribute(Variable { tokens: self.previous().clone() });
+        // }
         if self.match_token(TokenType::Variable) {
             return Expr::Variable(Variable { name: self.previous() .clone()});
         }
@@ -450,6 +482,7 @@ impl Parser {
     }
 
     fn error(&self, token: &Token, message: &str) -> ! {
+        println!("{:?}", self.peek());
         panic!("[line {}] Error{}: {}", token.line, if token._type == TokenType::Eof { " at end" } else { "" }, message)
     }
 
@@ -471,4 +504,30 @@ impl Parser {
     //         self.advance();
     //     }
     // }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    //need to tests this a lot, will come back
+
+    #[test]
+    fn test_some_string(){
+        // let mut tokenizer = Tokenizer::new("
+        // let x = db.TABLES.b.filter(); 
+        // let y = db.TABLES.x ; 
+        // x.filter(); 
+        // let z = x JOIN y on x.id=y.id;  x.select(a,b,c,d);
+        // ");
+        let mut tokenizer = Tokenizer::new("
+        let x = db.TABLES.b.filter();
+        ");
+        let tokens = tokenizer.scan_tokens().unwrap();
+        println!("Tokens: {:?}", tokens);
+        let mut tree = Parser::new(tokens);
+        let statements = tree.parse();
+        println!("\n\n\n Statements: {:?}", statements);
+        ()
+    }
 }
