@@ -84,10 +84,10 @@ pub enum MethodType{
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Hash, Eq, Debug, PartialEq, Clone)]
 pub struct Token {
     pub _type : TokenType,
-    lexeme : String,
+    pub lexeme : String,
     pub literal : Option<String>, 
     pub line : usize,
 } 
@@ -119,7 +119,7 @@ impl MethodType {
             "select" => MethodType::Select,
             "select_distinct" => MethodType::SelectDistinct,
             "offset" => MethodType::Offset,
-            "orderby" => MethodType::Limit,
+            "limit" => MethodType::Limit,
             "max" => MethodType::Max,
             "min" => MethodType::Min,
             "sum" => MethodType::Sum,

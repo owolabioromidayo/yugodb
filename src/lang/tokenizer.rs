@@ -126,6 +126,8 @@ impl<'a> Tokenizer<'a> {
             ("let", TokenType::Let),
             ("LJOIN", TokenType::Ljoin),
             ("JOIN", TokenType::Join),
+            ("ON", TokenType::On),
+
             // ("FROM" , TokenType::From ),
             // ("INDEX" , TokenType::Index ),
             // ("INSERT" , TokenType::Insert ),
@@ -145,7 +147,6 @@ impl<'a> Tokenizer<'a> {
             // ("WHERE" , TokenType::Where ),
         ]);
 
-        //TODO: let there be an Enum for this in types.rs
         let methods = vec!["orderby", "groupby", "filter", "select", "select_distinct",
                 "offset", "limit", "max", "min", "sum", "count", "count_distinct"]; 
 
@@ -155,30 +156,31 @@ impl<'a> Tokenizer<'a> {
             self.add_token(TokenType::Boolean, Some(text)); 
 
         }
-        else if text.contains('.') {
-            //is attribute
-            if self.peek() == '(' {
-                //this means the last part of the attr is a method
-                let parts: Vec<&str> = text.rsplitn(2, '.').collect();
-                let first_part = parts.last().unwrap_or(&"");
-                let second_part = parts.first().unwrap_or(&"");
+        // else if text.contains('.') {
+        //     //is attribute
+        //     if self.peek() == '(' {
+        //         //this means the last part of the attr is a method
+        //         let parts: Vec<&str> = text.rsplitn(2, '.').collect();
+        //         let first_part = parts.last().unwrap_or(&"");
+        //         let second_part = parts.first().unwrap_or(&"");
 
-                self.add_token(TokenType::Attribute, Some(first_part.to_string())); 
+        //         self.add_token(TokenType::Attribute, Some(first_part.to_string())); 
 
-                //we need to ensure method validity
-                if methods.contains(second_part){
-                    self.add_token(TokenType::Method, Some(second_part.to_string()));
-                } else{
-                    //we need some illegal method error preferraably
-                    self.add_token(TokenType::Illegal, Some(second_part.to_string()));
-                }
+        //         //we need to ensure method validity
+        //         if methods.contains(second_part){
+        //             self.add_token(TokenType::Method, Some(second_part.to_string()));
+        //         } else{
+        //             //we need some illegal method error preferraably
+        //             self.add_token(TokenType::Illegal, Some(second_part.to_string()));
+        //         }
 
 
 
-            } else {
-                self.add_token(TokenType::Attribute, Some(text))
-            }
-        }else if let Some(x) = token {
+            // } else {
+            //     self.add_token(TokenType::Attribute, Some(text))
+            // }
+        // }
+        else if let Some(x) = token {
             // Special identifier
             self.add_token(x.clone(), Some(text)); 
 

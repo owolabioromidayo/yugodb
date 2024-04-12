@@ -97,6 +97,7 @@ impl Parser {
 
     fn data_expr(&mut self) -> Expr {
         let left = self.data_call_expr();
+        println!("\n\n LEft {:?}", left); 
         if self.check(TokenType::Semicolon) {
             return left;
         } else {
@@ -130,6 +131,7 @@ impl Parser {
     fn data_call_expr(&mut self) -> Expr {
         
 
+        // this mustnt be working.
         // the left should be some variable either ways
         if let Ok(token) = self.peek_ahead(1) { //if its just a semicolon that is after, its a variable for sure
             if token._type == TokenType::Semicolon {
@@ -155,7 +157,7 @@ impl Parser {
         // a.push(left);
         // self.consume(TokenType::Dot, "Expected a Dot");
 
-        while !self.check(TokenType::LeftParen) { 
+        while !self.check_token_types(&[TokenType::LeftParen, TokenType::Semicolon, TokenType::Ljoin, TokenType::Join, TokenType::On]){ 
             a.push(self.consume(TokenType::Variable, "Expected a variable")); 
             if self.check(TokenType::Dot){
                 self.consume(TokenType::Dot, "Expected a dot");
@@ -175,6 +177,7 @@ impl Parser {
         }
 
 
+        a.pop(); 
         let mut datacall = DataCall {
 
             attr: a,
@@ -440,7 +443,7 @@ impl Parser {
         //     return Expr::Attribute(Variable { tokens: self.previous().clone() });
         // }
         if self.match_token(TokenType::Variable) {
-            return Expr::Variable(Variable { name: self.previous() .clone()});
+            return Expr::Variable(Variable { name: self.previous().clone()});
         }
 
         if self.match_token_types(&[TokenType::Number, TokenType::String]) {
@@ -506,13 +509,12 @@ impl Parser {
     }
 
     fn check_token_types(&self, token_types: &[TokenType]) -> bool {
+        if self.is_at_end() {
+            return false
+        }
         for &token_type in token_types {
-            if self.is_at_end() {
-                return false
-            } else {
-                if self.peek()._type == token_type {
-                    return true
-                }
+            if self.peek()._type == token_type {
+                return true
             }
         }
         false
@@ -564,6 +566,8 @@ impl Parser {
 
     fn error(&self, token: &Token, message: &str) -> ! {
         println!("{:?}", self.peek());
+        // println!("{:?}", self.statements);
+
         panic!("[line {}] Error{}: {}", token.line, if token._type == TokenType::Eof { " at end" } else { "" }, message)
     }
 
@@ -587,6 +591,8 @@ impl Parser {
     // }
 }
 
+//TODO: we need to support assignment operations for join expressions
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -595,15 +601,16 @@ mod tests {
 
     #[test]
     fn test_some_string(){
-        // let mut tokenizer = Tokenizer::new("
-        // let x = db.TABLES.b.filter(); 
-        // let y = db.TABLES.x ; 
-        // x.filter(); 
-        // let z = x JOIN y on x.id=y.id;  x.select(a,b,c,d);
-        // ");
         let mut tokenizer = Tokenizer::new("
-        let x = db.TABLES.b.filter().orderby();
+        let x = db.TABLES.b.filter(); 
+        let y = db.TABLES.x ; 
+        x.filter(); 
+        let z = x JOIN y ON id;  
+        z.select(a,b,c,d) ;
         ");
+        // let mut tokenizer = Tokenizer::new("
+        // let x = db.TABLES.b.filter().orderby();
+        // ");
         let tokens = tokenizer.scan_tokens().unwrap();
         println!("Tokens: {:?}", tokens);
         let mut tree = Parser::new(tokens);
