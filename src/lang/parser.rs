@@ -1,6 +1,7 @@
 use std::vec::Vec;
 use crate::lang::types::*; 
 use crate::lang::tokenizer::*; 
+use crate::error::*;
 // use crate::token::{Token, TokenType};
 // use crate::expr::{Expr, Literal, Variable, Grouping, Unary, Binary, Logical, Call, Assign};
 // use crate::stmt::{Stmt, ExprStmt, PrintStmt, VarStmt, BlockStmt, IfStmt, WhileStmt, FunctionStmt, ReturnStmt};
@@ -131,63 +132,66 @@ impl Parser {
     fn data_call_expr(&mut self) -> Expr {
         
 
-        if self.check(TokenType::Variable) {
-            // let left = self.consume(TokenType::Variable, "Expected a variable expr")
-           // variable is variable, nothing special
-           //make it a variable? (fix literal first)
-
-            self.expression()
-        
-        } else {
-            //TODO: realistically, variables should be grouped under attributes
-            //nvm, it cant be a variable at this point because of the method call, thats illegal
-
-            //parse out the attr and the method
-            //TODO: make variables attributes
-
-            println!("{:?}", self.peek());
-            let left =  self.consume(TokenType::Variable, "Expected a variable"); 
-
-            if self.peek()._type == TokenType::Semicolon {
-                return Expr::Variable(Variable { name: left })
-            } 
-
-            let mut a = Vec::new(); 
-            a.push(left);
-            self.consume(TokenType::Dot, "Expected a Dot");
-
-            while !self.check(TokenType::LeftParen) { 
-                a.push(self.consume(TokenType::Variable, "Expected a var")); 
-                if self.check(TokenType::Dot){
-                    self.consume(TokenType::Dot, "Expected a Dot");
-                }
+        // the left should be some variable either ways
+        let r = self.peek_ahead(1);
+        if let Ok(token) = self.peek_ahead(1) { //if its just a semicolon that is after, its a variable for sure
+            if token._type == TokenType::Semicolon {
+                return self.expression()
             }
-            //join everything inside an attr
-            let new_method = a.pop().unwrap(); 
+        }
 
-            //create the method type
+        // what about attrs, and methods, lets do that now ?
+        //TODO: realistically, variables should be grouped under attributes
+        //nvm, it cant be a variable at this point because of the method call, thats illegal
+
+        //parse out the attr and the method
+        //TODO: make variables attributes
+
+
+        // let left =  self.consume(TokenType::Variable, "Expected a variable"); 
+
+        let mut a = Vec::new(); 
+        // a.push(left);
+        // self.consume(TokenType::Dot, "Expected a Dot");
+
+        while !self.check(TokenType::LeftParen) { 
+            a.push(self.consume(TokenType::Variable, "Expected a variable")); 
+            if self.check(TokenType::Dot){
+                self.consume(TokenType::Dot, "Expected a dot");
+            }
+        }
+
+        // so we can just stop here as an attr only
+        //join everything inside an attr
+        let new_method = a.pop().unwrap(); 
+        if self.check(TokenType::LeftParen) {
             self.consume(TokenType::LeftParen, "Expected '(' for method"); 
                 //now we parse the arguments
             let arguments = self.arguments();
 
             Expr::DataCall( DataCall { attr: a, method: new_method ,  arguments: arguments } ) 
-            //check if method (not needed)
-            // if self.check(TokenType::Method) {
-            //     let m = self.consume(TokenType::Method, "Method should be consumed herer");
 
-            //     self.consume(TokenType::LeftParen, "Expected '(' for method"); 
-            //         //now we parse the arguments
-            //     let arguments = self.arguments();
+        } else {
+            // its just an attr
 
-            //     Expr::DataCall( DataCall { attr: left, arguments: arguments } ) 
-                       
-            // } else {
-            //      Expr::Variable(Variable { name: left })
-            // }
-
-        
-
+            Expr::Attribute(Attribute { tokens: a })
         }
+
+
+        //create the method type
+        //check if method (not needed)
+        // if self.check(TokenType::Method) {
+        //     let m = self.consume(TokenType::Method, "Method should be consumed herer");
+
+        //     self.consume(TokenType::LeftParen, "Expected '(' for method"); 
+        //         //now we parse the arguments
+        //     let arguments = self.arguments();
+
+        //     Expr::DataCall( DataCall { attr: left, arguments: arguments } ) 
+                    
+        // } else {
+        //      Expr::Variable(Variable { name: left })
+        // }
         
     }
 
@@ -435,6 +439,15 @@ impl Parser {
         &self.tokens[self.current]
     }
 
+    fn peek_ahead(&self, n: usize ) -> Result<&Token> {
+        if self.current + n >= self.tokens.len() {
+            Err(Error::AccessError) //TODO: should be indexerror
+        } else{ 
+
+            Ok(&self.tokens[self.current + n])
+        }
+    }
+
     fn previous(&self) -> &Token {
         &self.tokens[self.current - 1]
     }
@@ -453,6 +466,16 @@ impl Parser {
         }
         self.previous()
     }
+
+    // fn rewind(&mut self) -> bool {
+    //     if self.current > 0 {
+    //         self.current -= 1;
+    //         true
+    //     } else {
+    //         false
+    //     }
+
+    // }
 
     fn match_token(&mut self, token_type: TokenType) -> bool {
         if self.check(token_type) {
