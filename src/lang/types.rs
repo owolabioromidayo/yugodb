@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::fmt;
+
 #[derive(Hash, Eq, Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
     // Keywords
@@ -63,6 +66,24 @@ pub enum TokenType {
     Illegal,
 }
 
+#[derive(Debug, Hash, PartialEq, Eq)]
+pub enum MethodType{ 
+    OrderBy,  
+    GroupBy, 
+    Filter, 
+    Select, 
+    SelectDistinct,
+    Offset, 
+    Limit, 
+    Max, 
+    Min, 
+    Sum, 
+    Count, 
+    CountDistinct,
+    Illegal
+}
+
+
 #[derive(Debug, Clone)]
 pub struct Token {
     pub _type : TokenType,
@@ -89,8 +110,27 @@ impl Token {
 
 }
 
+impl MethodType {
+    pub fn new(token : &Token) -> Self {
+        match token.lexeme.as_str() {
+            "orderby" => MethodType::OrderBy,
+            "groupby" => MethodType::GroupBy,
+            "filter" => MethodType::Filter,
+            "select" => MethodType::Select,
+            "select_distinct" => MethodType::SelectDistinct,
+            "offset" => MethodType::Offset,
+            "orderby" => MethodType::Limit,
+            "max" => MethodType::Max,
+            "min" => MethodType::Min,
+            "sum" => MethodType::Sum,
+            "count" => MethodType::Count,
+            "count_distinct" => MethodType::CountDistinct,
+            _ => MethodType::Illegal
+            
+        }
+    }
+}
 
-use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 
@@ -241,8 +281,8 @@ pub struct DataExpr {
 #[derive(Debug)]
 pub struct DataCall {
     pub attr: Vec<Token>, // attr / left
-    pub method: Token,
-    pub arguments: Vec<Expr>,
+    pub methods: Vec<MethodType>, // ordered method composition
+    pub arguments: Vec<Vec<Expr>>,
 }
 
 

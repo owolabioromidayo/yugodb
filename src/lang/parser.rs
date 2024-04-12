@@ -2,9 +2,7 @@ use std::vec::Vec;
 use crate::lang::types::*; 
 use crate::lang::tokenizer::*; 
 use crate::error::*;
-// use crate::token::{Token, TokenType};
-// use crate::expr::{Expr, Literal, Variable, Grouping, Unary, Binary, Logical, Call, Assign};
-// use crate::stmt::{Stmt, ExprStmt, PrintStmt, VarStmt, BlockStmt, IfStmt, WhileStmt, FunctionStmt, ReturnStmt};
+use std::collections::HashMap;
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -133,7 +131,6 @@ impl Parser {
         
 
         // the left should be some variable either ways
-        let r = self.peek_ahead(1);
         if let Ok(token) = self.peek_ahead(1) { //if its just a semicolon that is after, its a variable for sure
             if token._type == TokenType::Semicolon {
                 return self.expression()
@@ -150,6 +147,10 @@ impl Parser {
 
         // let left =  self.consume(TokenType::Variable, "Expected a variable"); 
 
+        // we need to ddo this as many times as there are methods (apply multiple)
+        
+        // just while theres a dote
+
         let mut a = Vec::new(); 
         // a.push(left);
         // self.consume(TokenType::Dot, "Expected a Dot");
@@ -161,21 +162,65 @@ impl Parser {
             }
         }
 
-        // so we can just stop here as an attr only
-        //join everything inside an attr
-        let new_method = a.pop().unwrap(); 
+        if !self.check(TokenType::LeftParen) {
+            // is an attribute, early exit
+            return Expr::Attribute(Attribute { tokens: a })
+        }
+
+        // otherwise, there are methods to be parsed
+
+        let new_method = MethodType::new( a.last().unwrap() );
+        if new_method == MethodType::Illegal {
+            self.error(&a.pop().unwrap(), "Unsupported method call");
+        }
+
+
+        let mut datacall = DataCall {
+
+            attr: a,
+            methods: Vec::new(),
+            arguments: Vec::new(),
+        };
+
+        // its here we need to parse multiple methods
         if self.check(TokenType::LeftParen) {
             self.consume(TokenType::LeftParen, "Expected '(' for method"); 
                 //now we parse the arguments
             let arguments = self.arguments();
 
-            Expr::DataCall( DataCall { attr: a, method: new_method ,  arguments: arguments } ) 
+            // Expr::DataCall( DataCall { attr: a, method: new_method ,  arguments: arguments } ) 
+            datacall.methods.push(new_method);
+            datacall.arguments.push(arguments); 
 
-        } else {
+        }
+
+
+        while self.check(TokenType::Dot) {
+            self.consume(TokenType::Dot, "Expected '.' here.");
+
+            let token= self.consume(TokenType::Variable, "Expected a method name here.") ;
+            let method = MethodType::new(&token) ;
+            if method == MethodType::Illegal {
+                self.error(&token , "Unsupported method call");
+            }
+            // convert this to a methodenum
+
+
+            self.consume(TokenType::LeftParen, "Expected '(' for method"); 
+                //now we parse the arguments
+            let arguments = self.arguments();
+
+            datacall.methods.push(method);
+            datacall.arguments.push(arguments); 
+
+        }
+
+        Expr::DataCall(datacall)
+        //parse potential successive methods
+
+        
             // its just an attr
 
-            Expr::Attribute(Attribute { tokens: a })
-        }
 
 
         //create the method type
@@ -209,7 +254,7 @@ impl Parser {
                 }
             }
         }
-        let paren = self.consume(TokenType::RightParen, "Expect ')' after arguments.");
+        self.consume(TokenType::RightParen, "Expect ')' after arguments.");
         // match callee {
         //     Expr::Variable(Variable { name }) => Expr::Call(Call { callee: name, paren, arguments }),
         //     _ => unreachable!(),
@@ -460,6 +505,19 @@ impl Parser {
         }
     }
 
+    fn check_token_types(&self, token_types: &[TokenType]) -> bool {
+        for &token_type in token_types {
+            if self.is_at_end() {
+                return false
+            } else {
+                if self.peek()._type == token_type {
+                    return true
+                }
+            }
+        }
+        false
+    }
+
     fn advance(&mut self) -> &Token {
         if !self.is_at_end() {
             self.current += 1;
@@ -544,7 +602,7 @@ mod tests {
         // let z = x JOIN y on x.id=y.id;  x.select(a,b,c,d);
         // ");
         let mut tokenizer = Tokenizer::new("
-        let x = db.TABLES.b.filter();
+        let x = db.TABLES.b.filter().orderby();
         ");
         let tokens = tokenizer.scan_tokens().unwrap();
         println!("Tokens: {:?}", tokens);

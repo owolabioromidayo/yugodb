@@ -145,6 +145,7 @@ impl<'a> Tokenizer<'a> {
             // ("WHERE" , TokenType::Where ),
         ]);
 
+        //TODO: let there be an Enum for this in types.rs
         let methods = vec!["orderby", "groupby", "filter", "select", "select_distinct",
                 "offset", "limit", "max", "min", "sum", "count", "count_distinct"]; 
 
