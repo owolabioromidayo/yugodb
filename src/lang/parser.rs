@@ -180,7 +180,7 @@ impl Parser {
         a.pop(); 
         let mut datacall = DataCall {
 
-            attr: a,
+            attr: Attribute{tokens: a} ,
             methods: Vec::new(),
             arguments: Vec::new(),
         };

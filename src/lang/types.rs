@@ -66,7 +66,7 @@ pub enum TokenType {
     Illegal,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum MethodType{ 
     OrderBy,  
     GroupBy, 
@@ -157,14 +157,14 @@ impl fmt::Display for ValueType {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Value {
     pub value_type: ValueType,
     pub value: ValueData,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ValueData {
     Number(f64),
     String(String),
@@ -215,7 +215,7 @@ pub trait ExprVisitor<T> {
     fn visit_binary(&mut self, expr: &Binary) -> T;
     fn visit_grouping(&mut self, expr: &Grouping) -> T;
     fn visit_literal(&mut self, expr: &Literal) -> T;
-    fn visit_call_expr(&mut self, expr: &Call) -> T;
+    // fn visit_call_expr(&mut self, expr: &Call) -> T;
     fn visit_unary(&mut self, expr: &Unary) -> T;
     fn visit_variable(&mut self, expr: &Variable) -> T;
     fn visit_attribute(&mut self, expr: &Attribute) -> T;
@@ -235,7 +235,7 @@ pub trait StmtVisitor {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     Binary(Binary),
     Grouping(Grouping),
@@ -269,7 +269,7 @@ impl Expr {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DataExpr {
    pub left: Box<Expr>,
    pub right: Box<Expr>,
@@ -278,16 +278,15 @@ pub struct DataExpr {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DataCall {
-    pub attr: Vec<Token>, // attr / left
+    pub attr: Attribute, // attr / left
     pub methods: Vec<MethodType>, // ordered method composition
     pub arguments: Vec<Vec<Expr>>,
 }
 
 
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Binary {
     pub left: Box<Expr>,
     pub operator: Token,
@@ -295,52 +294,52 @@ pub struct Binary {
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Grouping {
     pub expression: Box<Expr>,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Literal {
     pub value: Value,
     pub literal_type: TokenType,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Unary {
     pub operator: Token,
     pub right: Box<Expr>,
 }
 
 
-#[derive(Debug)]
-pub struct Call {
-    pub callee: Box<Expr>,
-    pub paren: Token,
-    pub arguments: Vec<Expr>,
-}
+// #[derive(Debug, Clone)]
+// pub struct Call {
+//     pub callee: Box<Expr>,
+//     pub paren: Token,
+//     pub arguments: Vec<Expr>,
+// }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Variable {
     pub name: Token,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Attribute{
     pub tokens : Vec<Token>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Assign {
     pub name: Token,
     pub value: Box<Expr>,
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Logical {
     pub left: Box<Expr>,
     pub operator: Token,

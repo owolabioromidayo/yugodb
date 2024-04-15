@@ -99,19 +99,19 @@ impl JoinType{
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Projection {
     expr: Expr
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Join { 
     _type: JoinType, //TODO: uniontypes or type definitions for this
     predicate: Expr
 }
 
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Source {
     source: Expr, // i think we should shift forcing into DataCAll forwards
 }
@@ -125,7 +125,7 @@ pub enum NodeType {
 
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum NodeData {
     Projection(Projection),
     Source(Source),
@@ -134,39 +134,41 @@ pub enum NodeData {
 }
 
 
-#[derive(Debug)]
-struct Node {
+#[derive(Debug, Clone)]
+struct Node  {
     _type: NodeType,
     data: NodeData,
-    children: Option<Vec<Node>>
+    children: Option<Vec<Option<Node>>>
 }
 
-impl Node {
-    // what do we want here?
-}
+// impl Node <'a > {
+//     // what do we want here?
+// }
 
 
 
 
 struct AST{
     lookup_table : HashMap<String, Node>, //token.lexeme
-    root: Option<Node>
+    root: Option<Node>,
+    processed_statements: Vec<Option<Node>>,
 }
 
 
 
-impl AST{
+impl AST  {
 
     // we might have to do some visitor pattern stuff here.
     pub fn new()-> Self{
         AST {
             root: None,
-            lookup_table: HashMap::new()
+            lookup_table: HashMap::new(), 
+            processed_statements: Vec::new()
         }
     }
 
 
-    fn generate_from_expr(&mut self, expr: &Expr) -> Option<Node> {
+    fn generate_from_expr(&self, expr: &Expr) -> Option<Node> {
         match expr {
 
             //TODO: we need to think about handling the lower levels
@@ -176,16 +178,31 @@ impl AST{
 
             //do we have to match all the lower types? they have no bearing here (shoould be contained in either of these)
 
+            Expr::Attribute(attr) => {
+
+                // let lookup_str = (&attr.tokens).iter().map(|x| x.lexeme.to_string()).collect::<String>();
+
+                //TODO: our lookup table needs support for attributes
+                match self.lookup_table.get(&attr.tokens[0].lexeme.to_string()) {
+                    // need somewhere to store those extra transformations. 
+                    Some(x) => Some(x.clone()),
+                    None => None 
+                }
+                // None
+            }
             Expr::Variable(expr) => {
-                // return self.lookup_table.get(&expr.name.lexeme.to_string());
-                None
+                match self.lookup_table.get(&expr.name.lexeme.to_string()) {
+                    Some(x) => Some(x.clone()),
+                    None => None 
+                }
+                // None
             }
 
             Expr::DataCall(expr) => { 
                 // sweet, we have a base node
                 Some(Node {
                     _type: NodeType::Source, 
-                        data : NodeData::Source((Source{source: Expr::DataCall(*expr) })),
+                        data : NodeData::Source((Source{source: Expr::DataCall((*expr).clone()) })),
                         children: None
                     }) 
 
@@ -198,8 +215,15 @@ impl AST{
             Expr::DataExpr(expr) => { 
                 //create a join node
 
-                let left_node = self.generate_from_expr(expr.left.as_ref()).unwrap(); 
-                let right_node= self.generate_from_expr(expr.right.as_ref()).unwrap(); 
+                let left_node: Option<Node> = match self.generate_from_expr(expr.left.as_ref()) {
+                    Some(x) => Some(x),
+                    None => None 
+                };
+
+                let right_node= match self.generate_from_expr(expr.right.as_ref()) {
+                    Some(x) => Some(x),
+                    None => None
+                }; 
 
 
                 // add it as a child of curr
@@ -207,26 +231,29 @@ impl AST{
 
                 Some(Node {
                     _type: NodeType::Join, 
-                        data : NodeData::Join((Join{_type : JoinType::from_token(&expr.join), predicate: *expr.join_expr })),
+                        data : NodeData::Join((Join{_type : JoinType::from_token(&expr.join), predicate: *(expr.join_expr).clone() })),
                         children: Some(vec![left_node, right_node])
                 })
 
                 // curr.children.unwrap().push(join_node); 
             }      
 
-            _ => unimplemented!()               
+            _ =>  { 
+                println!("{:?}", expr);
+                None
+            }              
         }
 
 
     }
 
-    fn generate_from_stmt(&mut self, statement: &Stmt) -> Option<Node> {
+    fn generate_from_stmt(&mut self, statement: &Stmt) {
             match statement{
                 Stmt::Var(stmt) => {
                     //create some new variable and assign it to some 
                     // do nothing here, it has been handled already?                    
 
-                    return None 
+                    self.processed_statements.push(None); 
                 }
                 Stmt::Expression(stmt) =>  {
                     //something to be evaluated on an existing variable
@@ -236,10 +263,12 @@ impl AST{
 
                     //need to find out if its a join or just a datacall expr
 
-                    return  self.generate_from_expr(&stmt.expression);
+                    self.processed_statements.push(self.generate_from_expr(&stmt.expression));
 
                 }
-                Stmt::Print(stmt) => return None
+                Stmt::Print(stmt) => {
+                    self.processed_statements.push(None);
+                }
 
             }
     }
@@ -254,6 +283,8 @@ impl AST{
         }
         
         // i think we need a prelim forward pass to get all the variable arguments, then we can make nodes out of 
+
+        // TODO: need to preprocess all variables and ATTRS
         for statement in &statements {
             match statement {
                 Stmt::Var(varstmt) => {
@@ -266,9 +297,9 @@ impl AST{
                     }
                     let expr = &varstmt.initializer;
                     // we might need to recursively walk through this definition and break it down? 
-                    let fexpr =  self.generate_from_expr(expr).unwrap(); 
-                    self.lookup_table.insert(varstmt.name.lexeme.clone(), fexpr); 
-
+                    if let Some(fexpr) = self.generate_from_expr(expr) {
+                       self.lookup_table.insert(varstmt.name.lexeme.clone(), fexpr); 
+                    }
                     ()
                 }
                 _ => ()
@@ -301,30 +332,39 @@ impl AST{
 
         //top down (reversed stmt order), might be easier to handle?
         statements.reverse();
-        let curr = self.root.as_ref().unwrap(); 
 
-        for statement in statements {
-            let new_node = self.generate_from_stmt(&statement);
-            if let Some(x) = new_node {
-                match x._type {
-                    NodeType::Variable => {
-                        
-                    }
-                    NodeType::Join => {
+        let mut processed_stmts: Vec<Option<Node>> = Vec::new();  
+        // if let Some(curr) = &mut self.root {
 
-                    }
-                    NodeType::Source => { 
-
-                    }
-                    NodeType::Projection => {
-                        //not happening
-                        ()
-                    }
+            for statement in statements {
+                self.generate_from_stmt(&statement);
+                // processed_stmts.push(new_node);
+                
                 }
-            }
+        
             
-            }
+            // for statement in self.processed_statements {
+                // if let Some(x) = new_node {
+                //     match x._type {
+                //         NodeType::Variable => {
+                            
+                //         }
+                //         NodeType::Join => {
+                //             if let Some(children) = &mut curr.children { 
+                //                 children.push(Some(x)); 
+                                
+                //             }
+                //         }
+                //         NodeType::Source => { 
 
+                //         }
+                //         NodeType::Projection => {
+                //             //not happening
+                //             ()
+                //         }
+                //     }
+                // }
+            // }
     }
 
 
@@ -366,6 +406,9 @@ mod tests {
 
         let mut ast = AST::new();
         ast.generate(statements);
+        println!("\n\n\n Root: {:?}", ast.root);
+        println!("\n\n\n AST Lookup Table: {:?}", ast.lookup_table);
+        println!("\n\n\n AST Processed: {:?}", ast.processed_statements);
 
     }
 }
