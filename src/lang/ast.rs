@@ -57,6 +57,16 @@
 //gonna need to clone expr for this one, or move it into something else cloneable
 
 
+//TODO
+// What is left here?
+// We need to merge the variable decls into the tree -> figured out why
+// we need to make the statements themselves into a tree
+// is there really any model for this? lets just make each prev node child, like a linked list,
+//the rest of the structure is buried inside datacall for now, until we handle all exprs I guess
+// but getting it to execute first is the main goal
+
+
+use std::borrow::BorrowMut;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::vec::Vec;
@@ -138,7 +148,7 @@ pub enum NodeData {
 struct Node  {
     _type: NodeType,
     data: NodeData,
-    children: Option<Vec<Option<Node>>>
+    children: Vec<Option<Node>>
 }
 
 // impl Node <'a > {
@@ -200,10 +210,15 @@ impl AST  {
 
             Expr::DataCall(expr) => { 
                 // sweet, we have a base node
+
+                // the problem is we are not going deep enough here
+                // is it important that we do? i think we just need something runnable first. we have a lookup table, then
+                //can come back and redesign this as needed                
+
                 Some(Node {
                     _type: NodeType::Source, 
                         data : NodeData::Source((Source{source: Expr::DataCall((*expr).clone()) })),
-                        children: None
+                        children: Vec::new()
                     }) 
 
                 // add it as a child of curr
@@ -215,16 +230,9 @@ impl AST  {
             Expr::DataExpr(expr) => { 
                 //create a join node
 
-                let left_node: Option<Node> = match self.generate_from_expr(expr.left.as_ref()) {
-                    Some(x) => Some(x),
-                    None => None 
-                };
+                let left_node: Option<Node> = self.generate_from_expr(expr.left.as_ref());
 
-                let right_node= match self.generate_from_expr(expr.right.as_ref()) {
-                    Some(x) => Some(x),
-                    None => None
-                }; 
-
+                let right_node= self.generate_from_expr(expr.right.as_ref());
 
                 // add it as a child of curr
                 //TODO: is this proper error handling?
@@ -232,7 +240,7 @@ impl AST  {
                 Some(Node {
                     _type: NodeType::Join, 
                         data : NodeData::Join((Join{_type : JoinType::from_token(&expr.join), predicate: *(expr.join_expr).clone() })),
-                        children: Some(vec![left_node, right_node])
+                        children: vec![left_node, right_node]
                 })
 
                 // curr.children.unwrap().push(join_node); 
@@ -319,7 +327,7 @@ impl AST  {
                      Node {
                        _type: NodeType::Projection, 
                         data : NodeData::Projection((Projection{expr: expr.expression})),
-                        children: Some(Vec::new())
+                        children: Vec::new()
                      }
                 ); 
              }
@@ -336,35 +344,63 @@ impl AST  {
         let mut processed_stmts: Vec<Option<Node>> = Vec::new();  
         // if let Some(curr) = &mut self.root {
 
-            for statement in statements {
-                self.generate_from_stmt(&statement);
-                // processed_stmts.push(new_node);
-                
-                }
-        
+        for statement in statements {
+            self.generate_from_stmt(&statement);
+            // processed_stmts.push(new_node);
             
-            // for statement in self.processed_statements {
-                // if let Some(x) = new_node {
-                //     match x._type {
-                //         NodeType::Variable => {
-                            
-                //         }
-                //         NodeType::Join => {
-                //             if let Some(children) = &mut curr.children { 
-                //                 children.push(Some(x)); 
-                                
-                //             }
-                //         }
-                //         NodeType::Source => { 
+            }
+    
+        //here we want to look ahead and add children as required 
+        // let mut curr = self.root; 
+        for idx in 0..self.processed_statements.len() -2 {
+            let next = self.processed_statements[idx +1].clone();
+            let mut node = &mut (self.processed_statements[idx]); 
 
-                //         }
-                //         NodeType::Projection => {
-                //             //not happening
-                //             ()
-                //         }
-                //     }
-                // }
+            match &mut node {
+                &mut Some (ref mut x) => { 
+                    x.children.push(next.clone())
+                }
+                None => ()
+                }
+        }
+
+        if let Some(ref mut curr) = &mut self.root {
+            curr.children.push(self.processed_statements[0].clone()); // expensive
+        }
+
+            // if let  Some(mut x) = &mut *node.borrow_mut() {
+                
+            //     match x._type {
+            //         NodeType::Variable => {
+                       
+            //         }
+            //         NodeType::Join => {
+            //             match &mut x.children {
+            //                 Some(children) => { 
+            //                     children.push(self.processed_statements[idx+1].clone());
+            //                 }
+            //                 None => {
+            //                     x.children = Some(vec![self.processed_statements[idx+1].clone()]);
+            //                 }
+            //             }
+            //         }
+            //         NodeType::Source => { 
+
+            //         }
+            //         NodeType::Projection => {
+            //             //not happening
+            //             match &mut x.children {
+            //                 Some(children) => { 
+            //                     children.push(self.processed_statements[idx+1].clone());
+            //                 }
+            //                 None => {
+            //                     x.children = Some(vec![self.processed_statements[idx+1].clone()]);
+            //                 }
+            //             }
+            //         }
+            //     }
             // }
+        // }
     }
 
 
