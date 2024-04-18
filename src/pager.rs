@@ -39,7 +39,7 @@ struct PageCache {
 
 
 #[derive(Debug)]
-struct Pager {
+pub struct Pager {
     fname_prefix: String, 
     file_map: HashMap<String, FileInfo>,
     cache: PageCache,

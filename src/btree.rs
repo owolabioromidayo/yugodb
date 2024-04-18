@@ -38,12 +38,12 @@ const M: usize = 32;
 
 
 #[derive(Clone)]
-enum BPTreeNodeEnum {
+pub enum BPTreeNodeEnum {
     Internal(BPTreeInternalNode),
     Leaf(BPTreeLeafNode),
 }
 
-trait BPTreeNode {
+pub trait BPTreeNode {
     // fn new() -> Result<BPTreeNodeEnum>;
 
     fn serialize(&self) -> Vec<u8>;
@@ -59,14 +59,14 @@ trait BPTreeNode {
 }
 
 #[derive(Clone)]
-struct BPTreeInternalNode {
+pub struct BPTreeInternalNode {
     keys : Vec<u8>, // capacity M
     is_root: bool,
     children: Vec<Option<BPTreeNodeEnum>>, // capacity M+1
 }
 
 #[derive(Clone)]
-struct BPTreeLeafNode  {
+pub struct BPTreeLeafNode  {
     values: HashMap<u8, (u8,u8)>, 
     next_node: Option<Box<BPTreeLeafNode>>, //  LList
 }

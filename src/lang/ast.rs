@@ -158,7 +158,7 @@ struct Node  {
 
 
 
-struct AST{
+pub struct AST{
     lookup_table : HashMap<String, Node>, //token.lexeme
     root: Option<Node>,
     processed_statements: Vec<Option<Node>>,
@@ -419,13 +419,6 @@ mod tests {
 
     #[test]
     fn test_some_string(){
-        // let mut tokenizer = Tokenizer::new("
-        // let x = db.TABLES.b.filter(); 
-        // let y = db.TABLES.x ; 
-        // x.filter(); 
-        // let z = x JOIN y on x.id=y.id;  x.select(a,b,c,d);
-        // ");
-
         let mut tokenizer = Tokenizer::new("
         let x = db.TABLES.b.filter().orderby(); 
         let y = db.TABLES.x ; 
