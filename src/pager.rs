@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Seek, Write};
+use std::io::{Read, Seek, Write};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{SeekFrom};
@@ -57,7 +57,7 @@ impl FileInfo {
     }
 }
 
-
+// TODO : serialize and deserialize pager information
 impl Pager  {
 
     fn new(fname_prefix: String)-> Pager{
@@ -163,6 +163,27 @@ impl Pager  {
         }
 
     }
+    /// Get raw page from disk if not in cache
+    fn fetch_page(& mut self, index: usize) -> Result<Page> {
+        if let Some((filename, offset)) = self.page_index_map.get(&index) {
+            if let Ok(mut file) = File::open(filename) {
+                file.seek(std::io::SeekFrom::Start(*offset as u64))?;
+                let mut buf = vec![0 as u8; PAGE_SIZE_BYTES]; 
+                if let Ok(()) = file.read_exact(&mut buf) {
+                    return Ok(Page {
+                        index: index,
+                        bytes: buf,
+                        dirty: false
+                    })
+                }
+                return Err(Error::Unknown("Could not read bytes from file".to_string()))
+
+            }
+            return Err(Error::FileNotFound)
+        }
+        return Err(Error::NotFound)
+
+    }
 
     fn delete_page(&mut self, page: Page) -> Result<()> {
         let (file_name, offset) = self.page_index_map.get(&page.index).ok_or(Error::AccessError)?;
@@ -192,9 +213,11 @@ impl Pager  {
 
     fn flush_page(&self, page: &Page) -> Result<()> {
         let (fname, offset) = self.page_index_map.get(&page.index).ok_or(Error::AccessError)?;
-        let mut file = File::open(fname)?;
-        file.seek(std::io::SeekFrom::Start(*offset as u64))?;
-        file.write_all(&page.bytes)?;
+
+        if let Ok(mut file) = File::open(fname) {
+            file.seek(std::io::SeekFrom::Start(*offset as u64))?;
+            file.write_all(&page.bytes)?;
+        }
         Ok(())
     }
 
@@ -222,7 +245,7 @@ impl PageCache {
         self.loaded_pages.contains_key(&page_index)
     } 
 
-
+    // TODO: why are we cloning the page?
     fn add_page(&mut self, page: &Page) -> Result<()> { 
 
         if self.loaded_pages.contains_key(&page.index) {
@@ -252,6 +275,27 @@ impl PageCache {
         } else {
             None
         }
+    }
+
+    /// If the page is not loaded, it loads it using Pager::fetch_page ; fails if it cannot fetch
+    fn get_page_forced(&mut self, page_index:usize, pager: &mut Pager) -> Result<&Page> {
+        
+        if let Some(page ) =  self.get_page(page_index) {
+            return Ok(page)
+        }
+
+        // otherwise
+       
+        let new_page = pager.fetch_page(page_index)?;
+        if let Ok(()) = self.add_page(&new_page) {
+            return self.get_page(page_index)
+                .ok_or_else(|| Error::Unknown("Failed to access new page from cache".to_string()))
+            
+        }
+        return Err(Error::Unknown("Failed to add new page".to_string())); 
+
+
+
     }
 
 }

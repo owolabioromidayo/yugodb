@@ -6,7 +6,9 @@ pub enum Error{
     FileNotFound,
     IoError(std::io::Error),
     AccessError,
-    NotFound
+    TypeError(String),
+    NotFound,
+    SerdeError,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -31,6 +33,8 @@ impl std::fmt::Display for Error {
             IoError(err) => write!(f, "IoError: {err}"),
             AccessError => write!(f, "AccessError: Variable could not be accessed."),
             NotFound => write!(f, "Not found"),
+            TypeError(err) => write!(f, "TypeError: {err}"),
+            SerdeError => write!(f, "Error serializing or deserializing"),
         }
     }
 }

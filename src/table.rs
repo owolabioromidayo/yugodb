@@ -1,8 +1,11 @@
 
 use std::collections::HashMap;
 
-use crate::row::Row;
+use crate::record::*;
 use crate::btree::*;
+use crate::types::*;
+
+use crate::pager::Pager;
 
 pub enum TableType{
     Relational,
@@ -18,7 +21,7 @@ pub enum StorageModel {
 pub struct Table {
 
     name: String, 
-    schema: HashMap<String, String>,
+    schema: Schema,
     _type: TableType, 
     storage_method: StorageModel, 
     //pager -> it shouldnt have one, will be passed down to it
@@ -29,11 +32,29 @@ pub struct Table {
 
 impl Table {
 
+    //TODO, we need ot be aware of whether we are doing a relational or document row insert
+
     // todo, we need some dynamic row object standard
     pub fn new(){}
     // need to be able to package into new pages and update index(es)
-    pub fn insert_row(){}
-    pub fn insert_rows(){}
+    pub fn insert_relational_row(pager : &Pager, row: RelationalRecord){
+        unimplemented!()
+    }
+    
+    pub fn insert_document_row(pager : &Pager, row: DocumentRecord){
+        unimplemented!()
+
+        // what is the process here?
+        // since we are inserting a new row, we need to check the last page the table has
+        // access to
+        // check page cache, otherwise get raw page, update page cache?
+    }
+    pub fn insert_document_rows(pager : &Pager, rows: Vec<DocumentRecord>){
+        unimplemented!()
+    }
+    pub fn insert_rows(){
+
+    }
     pub fn delete_row(){} 
     pub fn get_row(){} //takes an id
     pub fn get_all_rows(){} 
@@ -63,3 +84,8 @@ impl Table {
 
     
 }
+
+
+// write tests to
+// create a new table
+// insert a row, delete a row, get all rows, get a row at id, get rows with select
