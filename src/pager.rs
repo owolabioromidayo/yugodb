@@ -187,21 +187,22 @@ impl Pager  {
     /// If the page is not loaded, it loads it using Pager::fetch_page ; fails if it cannot fetch
     /// this should actually be a pager func then
     pub fn get_page_forced(&mut self, page_index:usize) -> Result<& mut Page> {
-        
-        if let Some(page ) =  self.cache.get_page(page_index) {
-            return Ok(page)
-        }
+        unimplemented!()
+    //     if let Some(page ) =  self.cache.get_page(page_index) {
+    //         return Ok(page)
+    //     }
 
-        // otherwise
-       let new_page = self.fetch_page(page_index)?;
-       //// WHY DID THIS SHIT JUST FIX ITSELF ( cannot borrow self as mut more than once) b
-       //// because i made the previous result a mut Page?
-        if let Ok(()) = self.cache.add_page(&new_page) {
-            return self.cache.get_page(page_index)
-                .ok_or_else(|| Error::Unknown("Failed to access new page from cache".to_string()))
+    //     // otherwise
+    //    let new_page = self.fetch_page(page_index)?;
+    //    //// WHY DID THIS SHIT JUST FIX ITSELF ( cannot borrow self as mut more than once) b
+    //    //// because i made the previous result a mut Page?
+    //    /// // great, it came back for no reason
+    //     if let Ok(()) = self.cache.add_page(&new_page) {
+    //         return self.cache.get_page(page_index)
+    //             .ok_or_else(|| Error::Unknown("Failed to access new page from cache".to_string()))
             
-        }
-        return Err(Error::Unknown("Failed to add new page".to_string())); 
+    //     }
+    //     return Err(Error::Unknown("Failed to add new page".to_string())); 
 
 
     }

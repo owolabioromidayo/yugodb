@@ -76,6 +76,8 @@ use crate::lang::parser::*;
 use crate::error::*;
 use std::collections::HashMap;
 
+use crate::lang::typechecker::*;
+
 // struct Transform {
 
 //     method: String, // preferrably an enum
@@ -110,19 +112,19 @@ impl JoinType{
 }
 
 #[derive(Debug, Clone)]
-struct Projection {
+pub struct Projection {
     expr: Expr
 }
 
 #[derive(Debug, Clone)]
-struct Join { 
+pub struct Join { 
     _type: JoinType, //TODO: uniontypes or type definitions for this
     predicate: Expr
 }
 
 
 #[derive(Debug, Clone)]
-struct Source {
+pub struct Source {
     source: Expr, // i think we should shift forcing into DataCAll forwards
 }
 
@@ -145,7 +147,7 @@ pub enum NodeData {
 
 
 #[derive(Debug, Clone)]
-struct Node  {
+pub struct Node  {
     _type: NodeType,
     data: NodeData,
     children: Vec<Option<Node>>
@@ -159,9 +161,9 @@ struct Node  {
 
 
 pub struct AST{
-    lookup_table : HashMap<String, Node>, //token.lexeme
-    root: Option<Node>,
-    processed_statements: Vec<Option<Node>>,
+    pub lookup_table : HashMap<String, Node>, //token.lexeme
+    pub root: Option<Node>,
+    pub processed_statements: Vec<Option<Node>>,
 }
 
 
@@ -213,7 +215,22 @@ impl AST  {
 
                 // the problem is we are not going deep enough here
                 // is it important that we do? i think we just need something runnable first. we have a lookup table, then
-                //can come back and redesign this as needed                
+                //can come back and redesign this as needed
+
+
+                // method chaining resolution would have to be done here too
+                if expr.methods.len() == 0 {
+                    // no chaining to be done
+                        
+                } else {
+                
+                    for i in 1..expr.methods.len() {
+
+                    }
+
+                }
+
+                             
 
                 Some(Node {
                     _type: NodeType::Source, 
@@ -282,7 +299,7 @@ impl AST  {
     }
 
     /// Generate the AST from a list of statements
-    fn generate(&mut self, mut statements: Vec<Stmt>){
+    pub fn generate(&mut self, mut statements: Vec<Stmt>){
 
         // this is a very left to right and bottom to top kind of parsing.
 
