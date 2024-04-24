@@ -7,7 +7,7 @@ use crate::error::{Result, Error};
 
 
 const PAGE_SIZE_KB: usize = 4096;
-const PAGE_SIZE_BYTES:usize = PAGE_SIZE_KB * 1024; 
+pub const PAGE_SIZE_BYTES:usize = PAGE_SIZE_KB * 1024; 
 const FILE_LIMIT_PAGES: usize = 4096;
 const FILE_LIMIT_KB:usize = FILE_LIMIT_PAGES * PAGE_SIZE_KB; 
 const INIT_PAGE_COUNT: usize = 24;
@@ -23,10 +23,10 @@ struct FileInfo{
 
 
 #[derive(Debug, Clone)]
-struct Page {
-    index: usize,
-    bytes: Vec<u8>,
-    dirty: bool,
+pub struct Page {
+    pub index: usize,
+    pub bytes: Vec<u8>,
+    pub dirty: bool,
 }
 
 
@@ -58,6 +58,7 @@ impl FileInfo {
 }
 
 // TODO : serialize and deserialize pager information
+// TODO: all communication should be with the pager directly, not with the pagecache
 impl Pager  {
 
     fn new(fname_prefix: String)-> Pager{
@@ -70,7 +71,7 @@ impl Pager  {
         } 
     }
 
-    fn create_new_page(&mut self) -> Result<Page> {
+    pub fn create_new_page(&mut self) -> Result<Page> {
 
         let file_with_free_page = self.file_map.iter_mut().find(|(_, info)| !info.freelist.is_empty());
 
@@ -136,7 +137,6 @@ impl Pager  {
 
             } else {
                 //All files full, create a new file
-                print!("NO[e, this is the first time, so we are doing this");
                 let new_file_name = format!("{}-{}.ydb", self.fname_prefix, self.file_map.len());
                 self.create_new_file(new_file_name.clone())?;
 
@@ -151,7 +151,6 @@ impl Pager  {
                     bytes: vec![0u8; PAGE_SIZE_BYTES],
                     dirty: true,
                 };
-                print!("sjgskfj made it this far [e, this is the first time, so we are doing this");
 
                 self.page_index_map.insert(page_index, (new_file_name.clone(), page_offset)); 
                 self.page_count += 1;
@@ -182,6 +181,28 @@ impl Pager  {
             return Err(Error::FileNotFound)
         }
         return Err(Error::NotFound)
+
+    }
+
+    /// If the page is not loaded, it loads it using Pager::fetch_page ; fails if it cannot fetch
+    /// this should actually be a pager func then
+    pub fn get_page_forced(&mut self, page_index:usize) -> Result<& mut Page> {
+        
+        if let Some(page ) =  self.cache.get_page(page_index) {
+            return Ok(page)
+        }
+
+        // otherwise
+       let new_page = self.fetch_page(page_index)?;
+       //// WHY DID THIS SHIT JUST FIX ITSELF ( cannot borrow self as mut more than once) b
+       //// because i made the previous result a mut Page?
+        if let Ok(()) = self.cache.add_page(&new_page) {
+            return self.cache.get_page(page_index)
+                .ok_or_else(|| Error::Unknown("Failed to access new page from cache".to_string()))
+            
+        }
+        return Err(Error::Unknown("Failed to add new page".to_string())); 
+
 
     }
 
@@ -267,7 +288,7 @@ impl PageCache {
         Ok(())
     }
 
-    fn get_page(&mut self, page_index: usize) -> Option<&Page> {
+    fn get_page(&mut self, page_index: usize) -> Option<&mut Page> {
         if let Some((page, counter)) =  self.loaded_pages.get_mut(&page_index) {
             *counter = self.counter;
             self.counter += 1;
@@ -277,26 +298,6 @@ impl PageCache {
         }
     }
 
-    /// If the page is not loaded, it loads it using Pager::fetch_page ; fails if it cannot fetch
-    fn get_page_forced(&mut self, page_index:usize, pager: &mut Pager) -> Result<&Page> {
-        
-        if let Some(page ) =  self.get_page(page_index) {
-            return Ok(page)
-        }
-
-        // otherwise
-       
-        let new_page = pager.fetch_page(page_index)?;
-        if let Ok(()) = self.add_page(&new_page) {
-            return self.get_page(page_index)
-                .ok_or_else(|| Error::Unknown("Failed to access new page from cache".to_string()))
-            
-        }
-        return Err(Error::Unknown("Failed to add new page".to_string())); 
-
-
-
-    }
 
 }
 
