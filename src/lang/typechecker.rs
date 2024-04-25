@@ -1,18 +1,8 @@
-// take some AST, go through all the method calls and data sent to tables, and typecheck
-// typechecker is not diffifcult, just need to write some tests, get the final method and arg tables, and make it use the AST
-// maybe we should have 2 stage typechecking
-// one at insertion, data level
-// then method level which will execute during ASTGen
+use crate::database::Database; 
+use crate::error::*; 
+use crate::lang::types::*; 
 
-// we cannot have type checking without type resolution, AST still messy for now
-// need to work on the execution pipeline first, some things are not set
-
-
-// use crate::database::Database; 
-// use crate::error::*; 
-// use crate::lang::types::*; 
-
-// use std::collections::HashMap;
+use std::collections::HashMap;
 
 // pub const F_ARGS: HashMap<MethodType, Vec<String>> = HashMap::from([
 //     (MethodType::OrderBy,  ),
@@ -43,21 +33,9 @@
 //     ("count_distinct".to_string(), vec!["string".to_string()]),
 // ]);
 
-// pub const PREV_MAP: HashMap<String, Vec<String>> = HashMap::from([
-//     ("filter".to_string(), vec![]),
-//     ("orderby".to_string(), vec!["filter".to_string()]),
-//     ("groupby".to_string(), vec!["filter".to_string()]),
-//     ("select".to_string(), vec!["filter".to_string(), "orderby".to_string(), "groupby".to_string(), "offset".to_string(), "limit".to_string()]),
-//     ("select_distinct".to_string(), vec!["filter".to_string(), "orderby".to_string(), "groupby".to_string(), "offset".to_string(), "limit".to_string()]),
-//     ("offset".to_string(), vec!["filter".to_string(), "orderby".to_string(), "groupby".to_string()]),
-//     ("limit".to_string(), vec!["filter".to_string(), "orderby".to_string(), "groupby".to_string(), "offset".to_string()]),
-//     ("max".to_string(), vec!["filter".to_string(), "groupby".to_string()]),
-//     ("min".to_string(), vec!["filter".to_string(), "groupby".to_string()]),
-//     ("sum".to_string(), vec!["filter".to_string(), "groupby".to_string()]),
-//     ("count".to_string(), vec!["filter".to_string(), "groupby".to_string()]),
-//     ("count_distinct".to_string(), vec!["filter".to_string(), "groupby".to_string()]),
-// ]);
-    
+
+
+
 
 // fn check_method(
 //     method_type: MethodType,

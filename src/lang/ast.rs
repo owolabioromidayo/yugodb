@@ -1,71 +1,3 @@
-/// Construct the AST given the parsed statements
-/// 
-/// So what do we want to do 
-/// 
-/// we need a new layer of abstractions basically, not just statements and calls
-/// 
-/// 
-/// so very simply, the projection will have one child, as will the datasource and predicate
-/// only the join will have 2 children.
-/// 
-/// now to fin some way to extract this structure from our IR
-/// 
-/// very simply, we go through each statement in order, keep some variable map, and construct the final IR in a forward fashion
-/// 
-/// there is still a bunch of stuff missing from all of this, like CREATE, DELETE, etc (nee some seperate way of addressing those,) they should be ignored
-/// here. create can maybe be kept under adta source but its ultimately useless. we'll see
-/// 
-/// 
-/// 
-/// data sources are root nodes, like variables, they must be defined first
-/// the transformations already applied to them must be kept in a vec to be optimize later
-/// join expressions can reference these variables, as new childdren.
-/// this would mean the predicates are kept inside the data sources vec and the join only sees the source
-/// these joins would have to be stored in variables also, so they can be referencedd by successive operations
-/// 
-/// anything not stored in a variable that doesnt access a variable gets optimize away
-/// successive transformations of a variable shoul be taken note of? why woul we filter A after joining A an B? THINK ABOUT THIS
-/// 
-/// the projection operation should reference only one child, which could be a join
-/// ultimately, this should be easier as we will only have data sources and joins, with the predicates stored within and easily shuffleable
-/// 
-/// 
-/// but what use would the projection be? root noe/ tie it together?
-/// 
-///
-/// this shoul be easy to work on.
-/// 
-/// 
-/// things like aggregate expressions and nested subqueries should be considered. think i forgot about those
-/// 
-/// also, we might need to check the type validity of the program at this stage
-/// even validating method ordering might be something to be one at this stage
-/// 
-/// 
-/// our projection pushdown is going to be very weak anyways, unless the final output is going to be very restricted, because we already have projection
-/// functions in our transforms
-
-// variable statements are just predefinitions, expressions might use variables, but we still need some final AST
-
-
-// struct Predicate {
-
-// }
-
-
-
-//gonna need to clone expr for this one, or move it into something else cloneable
-
-
-//TODO
-// What is left here?
-// We need to merge the variable decls into the tree -> figured out why
-// we need to make the statements themselves into a tree
-// is there really any model for this? lets just make each prev node child, like a linked list,
-//the rest of the structure is buried inside datacall for now, until we handle all exprs I guess
-// but getting it to execute first is the main goal
-
-
 use std::borrow::BorrowMut;
 use std::hash::Hash;
 use std::ops::Deref;
@@ -77,22 +9,6 @@ use crate::error::*;
 use std::collections::HashMap;
 
 use crate::lang::typechecker::*;
-
-// struct Transform {
-
-//     method: String, // preferrably an enum
-//     arguments: Vec<Expr> // convert it to a Vec of Value Types
-// }
-
-
-// dont need this again, data call should be sufficient
-// struct DataSource { 
-//     tableName: String,
-//     transforms: Vec<Transform>,
-// }
-
-// this is all we need in the tree
-// so we need some sort of polymorphic walkable tree construct?
 
 
 #[derive(Debug, Clone, Copy)]
@@ -118,10 +34,9 @@ pub struct Projection {
 
 #[derive(Debug, Clone)]
 pub struct Join { 
-    _type: JoinType, //TODO: uniontypes or type definitions for this
+    _type: JoinType,
     predicate: Expr
 }
-
 
 #[derive(Debug, Clone)]
 pub struct Source {
@@ -145,7 +60,6 @@ pub enum NodeData {
     Variable(Box<Expr>)
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Node  {
     _type: NodeType,
@@ -153,94 +67,84 @@ pub struct Node  {
     children: Vec<Option<Node>>
 }
 
-// impl Node <'a > {
-//     // what do we want here?
-// }
-
-
-
-
 pub struct AST{
     pub lookup_table : HashMap<String, Node>, //token.lexeme
     pub root: Option<Node>,
-    pub processed_statements: Vec<Option<Node>>,
+    pub processed_statements: Vec<Option<Node>>, // ordered linkeed list of process statement for  execution
+    pub prev_map: HashMap<MethodType, Vec<MethodType>>
 }
-
 
 
 impl AST  {
 
-    // we might have to do some visitor pattern stuff here.
     pub fn new()-> Self{
         AST {
             root: None,
             lookup_table: HashMap::new(), 
-            processed_statements: Vec::new()
+            processed_statements: Vec::new(),
+            prev_map: HashMap::from([
+                    (MethodType::OrderBy, vec![MethodType::Filter] ),
+                    (MethodType::GroupBy, vec![MethodType::Filter] ),
+                    (MethodType::Filter, vec![]),
+                    (MethodType::Select, vec![MethodType::Filter]),
+                    (MethodType::SelectDistinct, vec![MethodType::Filter]),
+                    (MethodType::Offset, vec![MethodType::Filter, MethodType::OrderBy, MethodType::GroupBy] ),
+                    (MethodType::Limit, vec![MethodType::Filter, MethodType::OrderBy, MethodType::GroupBy, MethodType::Offset] ),
+                    (MethodType::Max, vec![MethodType::Filter, MethodType::GroupBy] ),
+                    (MethodType::Min,  vec![MethodType::Filter, MethodType::GroupBy]),
+                    (MethodType::Sum,  vec![MethodType::Filter, MethodType::GroupBy]),
+                    (MethodType::Count,  vec![MethodType::Filter, MethodType::GroupBy]),
+                    (MethodType::CountDistinct, vec![MethodType::Filter, MethodType::GroupBy]),
+                    (MethodType::Illegal, vec![]),
+                ])
         }
     }
 
 
     fn generate_from_expr(&self, expr: &Expr) -> Option<Node> {
         match expr {
-
-            //TODO: we need to think about handling the lower levels
-
-            //we need to do the visitor pattern thing for the lower levels
-            // for now, lets look at higher stuff
-
-            //do we have to match all the lower types? they have no bearing here (shoould be contained in either of these)
-
             Expr::Attribute(attr) => {
 
-                // let lookup_str = (&attr.tokens).iter().map(|x| x.lexeme.to_string()).collect::<String>();
-
-                //TODO: our lookup table needs support for attributes
                 match self.lookup_table.get(&attr.tokens[0].lexeme.to_string()) {
                     // need somewhere to store those extra transformations. 
                     Some(x) => Some(x.clone()),
                     None => None 
                 }
-                // None
             }
             Expr::Variable(expr) => {
                 match self.lookup_table.get(&expr.name.lexeme.to_string()) {
                     Some(x) => Some(x.clone()),
                     None => None 
                 }
-                // None
             }
 
             Expr::DataCall(expr) => { 
-                // sweet, we have a base node
-
-                // the problem is we are not going deep enough here
-                // is it important that we do? i think we just need something runnable first. we have a lookup table, then
-                //can come back and redesign this as needed
 
 
-                // method chaining resolution would have to be done here too
-                if expr.methods.len() == 0 {
-                    // no chaining to be done
-                        
-                } else {
-                
+                // method chaining resolution should be done here
+                if (expr.methods.len() > 1) { 
                     for i in 1..expr.methods.len() {
+                        let curr = expr.methods[i];                         
+                        let prev = expr.methods[i-1];       
 
+                        println!("{:?}.{:?}", &prev, &curr);                   
+
+                        if let Some(r) = self.prev_map.get(&curr) {
+                            if !r.contains(&prev)  {
+                                self.error(format!("{:?} method cannot precede {:?}.",&prev ,&curr  ).as_str()); 
+                            }
+                        } else {
+                                self.error(format!("Precedence check for {:?} not implemented!",&curr).as_str()); 
+                        }
                     }
 
                 }
-
                              
-
                 Some(Node {
                     _type: NodeType::Source, 
                         data : NodeData::Source((Source{source: Expr::DataCall((*expr).clone()) })),
                         children: Vec::new()
                     }) 
-
-                // add it as a child of curr
-                //TODO: is this proper error handling?
-                // curr.children.unwrap().push(new_node);
 
 
             }  
@@ -251,8 +155,6 @@ impl AST  {
 
                 let right_node= self.generate_from_expr(expr.right.as_ref());
 
-                // add it as a child of curr
-                //TODO: is this proper error handling?
 
                 Some(Node {
                     _type: NodeType::Join, 
@@ -260,7 +162,6 @@ impl AST  {
                         children: vec![left_node, right_node]
                 })
 
-                // curr.children.unwrap().push(join_node); 
             }      
 
             _ =>  { 
@@ -274,24 +175,16 @@ impl AST  {
 
     fn generate_from_stmt(&mut self, statement: &Stmt) {
             match statement{
-                Stmt::Var(stmt) => {
-                    //create some new variable and assign it to some 
-                    // do nothing here, it has been handled already?                    
-
+                Stmt::Var(_) => {
+                    // do nothing here, it has been handled already                    
                     self.processed_statements.push(None); 
                 }
                 Stmt::Expression(stmt) =>  {
-                    //something to be evaluated on an existing variable
-                    // so what do we do in this case?
-
-                    // need to find the variable in use if any
-
-                    //need to find out if its a join or just a datacall expr
-
                     self.processed_statements.push(self.generate_from_expr(&stmt.expression));
 
                 }
-                Stmt::Print(stmt) => {
+                Stmt::Print(_) => {
+                    // TODO: impl print statement support?
                     self.processed_statements.push(None);
                 }
 
@@ -301,15 +194,11 @@ impl AST  {
     /// Generate the AST from a list of statements
     pub fn generate(&mut self, mut statements: Vec<Stmt>){
 
-        // this is a very left to right and bottom to top kind of parsing.
-
         if statements.len() == 0 {
             self.error("Cannot generate AST from an empty list!");
         }
         
         // i think we need a prelim forward pass to get all the variable arguments, then we can make nodes out of 
-
-        // TODO: need to preprocess all variables and ATTRS
         for statement in &statements {
             match statement {
                 Stmt::Var(varstmt) => {
@@ -321,7 +210,7 @@ impl AST  {
                             self.error("Cannot define the same variable twice!");
                     }
                     let expr = &varstmt.initializer;
-                    // we might need to recursively walk through this definition and break it down? 
+                    // we might need to recursively walk through this definition and break it down?, NO , job for the visitor
                     if let Some(fexpr) = self.generate_from_expr(expr) {
                        self.lookup_table.insert(varstmt.name.lexeme.clone(), fexpr); 
                     }
@@ -331,10 +220,7 @@ impl AST  {
             }
         }
 
-        println!("Variables: {:?} ", self.lookup_table);
-
-
-        //we need to ensure the last statement is some projection, or we just create an empty one 
+        //we need to ensure the last statement is some projection
         let projection = statements.pop().unwrap();
 
         match projection {
@@ -349,75 +235,38 @@ impl AST  {
                 ); 
              }
              _ => {
-                self.error("Final statement in query must be an expression!");
+                self.error("Final statement in query must be an projection expression!");
              }
         }
 
         
-
         //top down (reversed stmt order), might be easier to handle?
         statements.reverse();
 
-        let mut processed_stmts: Vec<Option<Node>> = Vec::new();  
-        // if let Some(curr) = &mut self.root {
-
         for statement in statements {
             self.generate_from_stmt(&statement);
-            // processed_stmts.push(new_node);
-            
-            }
+        }
     
         //here we want to look ahead and add children as required 
-        // let mut curr = self.root; 
-        for idx in 0..self.processed_statements.len() -2 {
-            let next = self.processed_statements[idx +1].clone();
-            let mut node = &mut (self.processed_statements[idx]); 
+        // TOOD : investigate this further
+        if self.processed_statements.len() > 1 { 
+            for idx in 0..self.processed_statements.len() -2 {
+                let next = self.processed_statements[idx +1].clone();
+                let mut node = &mut (self.processed_statements[idx]); 
 
-            match &mut node {
-                &mut Some (ref mut x) => { 
-                    x.children.push(next.clone())
-                }
-                None => ()
-                }
+                match &mut node {
+                    &mut Some (ref mut x) => { 
+                        x.children.push(next)
+                    }
+                    None => ()
+                    }
+            }
         }
 
         if let Some(ref mut curr) = &mut self.root {
             curr.children.push(self.processed_statements[0].clone()); // expensive
         }
 
-            // if let  Some(mut x) = &mut *node.borrow_mut() {
-                
-            //     match x._type {
-            //         NodeType::Variable => {
-                       
-            //         }
-            //         NodeType::Join => {
-            //             match &mut x.children {
-            //                 Some(children) => { 
-            //                     children.push(self.processed_statements[idx+1].clone());
-            //                 }
-            //                 None => {
-            //                     x.children = Some(vec![self.processed_statements[idx+1].clone()]);
-            //                 }
-            //             }
-            //         }
-            //         NodeType::Source => { 
-
-            //         }
-            //         NodeType::Projection => {
-            //             //not happening
-            //             match &mut x.children {
-            //                 Some(children) => { 
-            //                     children.push(self.processed_statements[idx+1].clone());
-            //                 }
-            //                 None => {
-            //                     x.children = Some(vec![self.processed_statements[idx+1].clone()]);
-            //                 }
-            //             }
-            //         }
-            //     }
-            // }
-        // }
     }
 
 
@@ -431,8 +280,6 @@ impl AST  {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    //need to tests this a lot, will come back
 
     #[test]
     fn test_some_string(){

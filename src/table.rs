@@ -76,28 +76,7 @@ impl Table {
     }
 
 
-    // We are using BSON for sure here
-
-    // we've already verified theres enough storage for this right
-    fn append_document_row(serialized_document_row: &Vec<u8>, page: &mut Page) {
-        //we need some unique row end marker
-        // or do we want to do some unpack and repack as BSON
-
-    }
-
     pub fn insert_document_row(&mut self, pager : &mut Pager, row: DocumentRecord) -> Result<bool>{
-
-        // what is the process here?
-        // since we are inserting a new row, we need to check the last page the table has
-        // access to
-        // check page cache, otherwise get raw page, update page cache?
-
-        //lets just assume get_page_forced is fixed for now
-
-        //we need more than just the page_index, we need the filename also
-        // and we also need some way to scan a page, lest we keep an unmaintainable map of offsets
-
-        // let (filename, offset) = self.default_index.get(self.curr_page)?;
 
         let mut curr_page = pager.get_page_forced(self.curr_page_id)?;
         let mut document_page = match DocumentRecordPage::deserialize(&curr_page.bytes) {
@@ -125,48 +104,10 @@ impl Table {
             pager.flush_page(&curr_page)?; 
             // self.curr_page_id
         }
-
-
         Ok(true)
-
-        // let mut document_page = DocumentRecordPage::deserialize(&curr_page.bytes)?;
-        // match bson::to_vec(&curr_page.bytes){
-        //     Ok(res) => {
-        //         println!("{:?}", res.len()); 
-
-        //         Ok(true)
-        //     },
-        //     Err(e) => Err(Error::SerializationError)
-
-        // }
-        
-        // let free_bytes = self.scan_page(&curr_page); 
-
-        // //now we need to serialize the row
-        // // TODO: how do we think about extracting information from a page? do we just bundle rows together
-        // let new_data = row.serialize()?; 
-        // if new_data.len() > free_bytes { 
-        //     // we have to create another page
-        //     let mut new_page = pager.create_new_page()?;
-
-        //     // now we do the actual insertion into this page, and persist it somehow
-        //     // new_page.
-        //     if new_data.len() > PAGE_SIZE_BYTES {
-        //         Err(Error::Unknown("Document size too large to be written to page".to_string()))
-        //     } else {
-        //         Table::append_document_row(&new_data, &mut new_page); 
-        //         Ok(true)
-        //     }
-
-        // } else{
-        //     //theres still space to append baby
-        //     Table::append_document_row(&new_data, &mut curr_page); 
-        //     Ok(true)
-        // }
-        
-
-
     }
+
+
     pub fn insert_document_rows(pager : &Pager, rows: Vec<DocumentRecord>){
         unimplemented!()
     }
@@ -202,11 +143,6 @@ impl Table {
 
     
 }
-
-
-// write tests to
-// create a new table
-// insert a row, delete a row, get all rows, get a row at id, get rows with select
 
 
 #[cfg(test)]
@@ -285,7 +221,6 @@ mod tests {
         let result2 = table.insert_document_row(&mut pager, record2.clone());
         assert!(result2.is_ok());
 
-        //before we can do this,  we need to persist the page and flush
         let page = pager.get_page_forced(table.curr_page_id).unwrap();
 
         // Check if the records are inserted correctly
