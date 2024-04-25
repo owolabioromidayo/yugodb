@@ -8,7 +8,9 @@ pub enum Error{
     AccessError,
     TypeError(String),
     NotFound,
-    SerdeError,
+    SerializationError,
+    BsonError(bson::ser::Error),
+    BsonDeserializationError(bson::de::Error), 
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -20,6 +22,19 @@ impl From<std::io::Error> for Error {
         Error::IoError(err)
     }
 }
+
+impl From<bson::ser::Error> for Error {
+    fn from(err: bson::ser::Error) -> Self {
+        Error::BsonError(err)
+    }
+}
+
+impl From<bson::de::Error> for Error {
+    fn from(err: bson::de::Error) -> Self {
+        Error::BsonDeserializationError(err)
+    }
+}
+
 
 
 impl std::fmt::Display for Error {
@@ -34,7 +49,9 @@ impl std::fmt::Display for Error {
             AccessError => write!(f, "AccessError: Variable could not be accessed."),
             NotFound => write!(f, "Not found"),
             TypeError(err) => write!(f, "TypeError: {err}"),
-            SerdeError => write!(f, "Error serializing or deserializing"),
+            SerializationError => write!(f, "Error serializing or deserializing"),
+             BsonError(err) => write!(f, "BSON Serialization Error: {err}"),
+            BsonDeserializationError(err) => write!(f, "BSON Deserialization Error: {err}"),
         }
     }
 }

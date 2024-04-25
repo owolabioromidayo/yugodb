@@ -61,7 +61,7 @@ impl FileInfo {
 // TODO: all communication should be with the pager directly, not with the pagecache
 impl Pager  {
 
-    fn new(fname_prefix: String)-> Pager{
+    pub fn new(fname_prefix: String)-> Pager{
         Pager {
             fname_prefix,
             file_map: HashMap::new(),
@@ -77,7 +77,6 @@ impl Pager  {
 
         if let Some((file_name, file_info)) = file_with_free_page {
 
-            print!("We are in here, we have some free pages after all!");
             let page_index = self.page_count;
             let page_offset = file_info.freelist.pop().unwrap();
             
@@ -163,7 +162,7 @@ impl Pager  {
 
     }
     /// Get raw page from disk if not in cache
-    fn fetch_page(& mut self, index: usize) -> Result<Page> {
+    fn fetch_page(&self, index: usize) -> Result<Page> {
         if let Some((filename, offset)) = self.page_index_map.get(&index) {
             if let Ok(mut file) = File::open(filename) {
                 file.seek(std::io::SeekFrom::Start(*offset as u64))?;
@@ -184,25 +183,27 @@ impl Pager  {
 
     }
 
+    //get page should be manually requested before this
     /// If the page is not loaded, it loads it using Pager::fetch_page ; fails if it cannot fetch
-    /// this should actually be a pager func then
-    pub fn get_page_forced(&mut self, page_index:usize) -> Result<& mut Page> {
-        unimplemented!()
-    //     if let Some(page ) =  self.cache.get_page(page_index) {
-    //         return Ok(page)
-    //     }
+    pub fn get_page_forced(&mut self, page_index:usize) -> Result<Page> {
+        // unimplemented!()
+        // if let Some(page ) =  self.cache.get_page(page_index) {
+        //     return Ok(page)
+        // }
 
-    //     // otherwise
-    //    let new_page = self.fetch_page(page_index)?;
-    //    //// WHY DID THIS SHIT JUST FIX ITSELF ( cannot borrow self as mut more than once) b
-    //    //// because i made the previous result a mut Page?
-    //    /// // great, it came back for no reason
-    //     if let Ok(()) = self.cache.add_page(&new_page) {
-    //         return self.cache.get_page(page_index)
-    //             .ok_or_else(|| Error::Unknown("Failed to access new page from cache".to_string()))
+        // otherwise
+       let new_page = self.fetch_page(page_index)?;
+       // WHY DID THIS SHIT JUST FIX ITSELF ( cannot borrow self as mut more than once) b
+       // because i made the previous result a mut Page?
+       // // great, it came back for no reason
+       // so the issue was lifetime based then
+
+        if let Ok(()) = self.cache.add_page(&new_page) {
+            return self.cache.get_page_cloned(page_index)
+                .ok_or_else(|| Error::Unknown("Failed to access new page from cache".to_string()))
             
-    //     }
-    //     return Err(Error::Unknown("Failed to add new page".to_string())); 
+        }
+        return Err(Error::Unknown("Failed to add new page to cache".to_string())); 
 
 
     }
@@ -233,14 +234,23 @@ impl Pager  {
         Ok(())
     }
 
-    fn flush_page(&self, page: &Page) -> Result<()> {
+    pub fn flush_page(&self, page: &Page) -> Result<()> {
         let (fname, offset) = self.page_index_map.get(&page.index).ok_or(Error::AccessError)?;
 
-        if let Ok(mut file) = File::open(fname) {
-            file.seek(std::io::SeekFrom::Start(*offset as u64))?;
-            file.write_all(&page.bytes)?;
+        let file = OpenOptions::new()
+                                        .read(true)
+                                        .write(true)
+                                        .create(true)
+                                        .open(fname);
+
+        match file{
+            Ok(mut f) => {
+                f.seek(std::io::SeekFrom::Start(*offset as u64))?;
+                f.write_all(&page.bytes)?;
+                Ok(())
+            }
+            Err(e) => Err(Error::IoError(e))
         }
-        Ok(())
     }
 
 
@@ -299,6 +309,15 @@ impl PageCache {
         }
     }
 
+    fn get_page_cloned(&mut self, page_index:usize) -> Option<Page> { 
+        if let Some((page, counter)) =  self.loaded_pages.get(&page_index) {
+            Some(page.clone())
+        } else {
+            None
+        }
+
+    }
+
 
 }
 
@@ -309,7 +328,6 @@ mod tests {
 
     #[test]
     fn test_create_and_delete_page() {
-        println!("We are going now!");
         let mut pager = Pager::new("testasdas".to_string());
         let page = pager.create_new_page().unwrap();
         assert_eq!(page.index, 0);
