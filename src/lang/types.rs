@@ -365,6 +365,8 @@ impl Stmt {
             Stmt::Expression(stmt) => visitor.visit_expr_stmt(stmt),
             Stmt::Print(stmt) => visitor.visit_print_stmt(stmt),
             Stmt::Var(stmt) => visitor.visit_var_stmt(stmt),
+
+            // would these ever be useful for lambdas perhaps
             // Stmt::Block(stmt) => visitor.visit_block_stmt(stmt),
             // Stmt::If(stmt) => visitor.visit_if_stmt(stmt),
             // Stmt::While(stmt) => visitor.visit_while_stmt(stmt),

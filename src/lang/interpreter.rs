@@ -49,9 +49,54 @@ pub struct IterClosure {
 struct Interpreter { 
     //some variables I guess
     // we need a better local state here
+    pub variables: HashMap<String, RecordIterator>,
 }
 
 impl ExprVisitor<()> for Interpreter {
+
+    //TOOD: these are key to building up everything else
+    // funnily, doesnt come from this, but in a roundabout way comes from the datacall and dataexpr
+    // learny your own grammar
+
+    
+    // we should also clone here, better to have some static copy
+    fn visit_variable(&mut self, expr: &Variable) -> Result<RecordIterator> {
+        // in this situation, we just return the evaluation of the variable.
+        // if it is the first time being defined we store, otherwise, we return from the map
+
+        //TODO: a variable should be guaranteed some literal ; its just unwrap for now
+        match self.variables.get(&expr.name.literal.unwrap()) {
+            Some(y) => Ok(y.clone()),
+            None => Err(Error::NotFound(format!("Variable {:?} does not exist", expr))),
+        }
+
+    }
+
+    // an atrribute could just be some recorditerator with a set of predicates applied to it!
+    fn visit_attribute(&mut self, expr: &Attribute) -> Result<RecordIterator> {
+
+        //an attribute is a select statement applied to a variable
+
+        let left = &expr.tokens[0].literal.unwrap();
+        if self.variables.contains_key(left) {
+
+            // this only works for things like x.id
+            let mut var = self.visit_variable_token(&expr.tokens[0]).unwrap();
+            for t in &expr.tokens[1..] {
+                var.predicate.select.push(t.literal.unwrap());
+            }
+
+            return Ok(var)     
+        } else {
+
+            // TODO: what about DB.table.X or some shit
+            // have to deal with this here
+            unimplemented!()
+        }
+        
+
+    }
+
     fn visit_binary(&mut self, expr: &Binary) -> IterClosure{
 
         let left = self.evaluate(&expr.left); 
@@ -78,7 +123,7 @@ impl ExprVisitor<()> for Interpreter {
                                         // what would greater mean! thats strange?
                                         // there has to be some extra information being packed, or this is an attribute being iterated over
                                         // anyhow, evalute should take care of that, then this document type comparison would not be neccessary
-                                        
+
                                     }
 
                                 }
@@ -99,12 +144,56 @@ impl ExprVisitor<()> for Interpreter {
     fn visit_grouping(&mut self, expr: &Grouping) -> () {unimplemented!()}
     fn visit_literal(&mut self, expr: &Literal) -> () {unimplemented!()}
     fn visit_unary(&mut self, expr: &Unary) -> () {unimplemented!()}
-    fn visit_variable(&mut self, expr: &Variable) -> () {unimplemented!()}
-    fn visit_attribute(&mut self, expr: &Attribute) -> () {unimplemented!()}
+
+
+
+    
     fn visit_assign(&mut self, expr: &Assign) -> () {unimplemented!()}
     fn visit_logical_expr(&mut self, expr: &Logical) -> () {unimplemented!()}
-    fn visit_data_call(&mut self, expr: &DataCall) -> () {unimplemented!()}
-    fn visit_data_expr(&mut self, expr: &DataExpr) -> () {unimplemented!()}
+    fn visit_data_call(&mut self, expr: &DataCall) -> Result<RecordIterator> {
+
+        let mut left = self.evaluate(&Expr::Attribute(expr.attr));
+
+        // this is where we apply the methods to the iterator
+        // method typechecking and application
+
+        // remember , besides that, that we have to generate some iter function
+        // we are still working on that
+        // TODO: maybe create a custom next : Option<dyn Fn() -> Records> on RecordIterator
+
+
+        return Ok(left)
+
+
+
+    }
+
+    fn visit_data_expr(&mut self, expr: &DataExpr) -> () {
+
+        let left = self.evaluate(&expr.left); 
+        let right = self.evaluate(&expr.right);
+
+        match &expr.join._type {
+            TokenType::Ljoin  => {
+                // here we have to wrory about database types? do we?
+                // yeah, records still contains some db type info
+
+
+                // we have no notion of Fkeys yet
+                // fkeys are easy, if they are named appropriately
+                // need to extend database tables to support that though
+                //TODO: easiest way is to specify the left and right join keys
+                // left join, we basically iter and zip where we can (based on id)
+
+            },
+            TokenType::Join => {
+                // left join, we basically iter and zip where we can (based on id), but we discard non matches
+
+            },
+            _ => unimplemented!()
+        } 
+
+    }
 }
 
 impl StmtVisitor for Interpreter {
@@ -130,7 +219,20 @@ impl StmtVisitor for Interpreter {
 
 impl Interpreter {
 
+    // makes more sense to get a clone we can modify for attrs and elsewhere also
+    fn visit_variable_token(&mut self, token: &Token) -> Result<RecordIterator> {
+        // in this situation, we just return the evaluation of the variable.
+        // if it is the first time being defined we store, otherwise, we return from the map
 
+        //TODO: a variable should be guaranteed some literal ; its just unwrap for now
+        match self.variables.get(&token.literal.unwrap()) {
+            Some(y) => Ok(y.clone()),
+            None => Err(Error::NotFound(format!("Variable {:?} does not exist", token))),
+        }
+
+    }
+
+    // TODO: maybe we want a result<RI> instead
     pub fn evaluate(&self, expr: &Expr) -> RecordIterator {
 
         // we should expect some RecordIterator from this?
@@ -167,6 +269,15 @@ impl Interpreter {
 
         for (k,v) in ast_lookup.iter() {
             //resolve the variable into either some value or an IterWrapper kind of thing (with the proper args on it)
+
+            self.variables[k] =  match v.data {
+                NodeData::Join(x) => unimplemented!(),
+                NodeData::Source(x) =>  self.evaluate(&x.source),
+
+                // TODO: something like this could be circular i.e x = x
+                NodeData::Variable(x ) => unimplemented!(),
+                NodeData::Projection(x) => unimplemented!()
+            }
         }
     }
 

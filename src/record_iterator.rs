@@ -11,6 +11,7 @@ use crate::error::*;
 // there is get rows in range, so we just work on that
 
 
+#[derive(Clone)]
 pub struct RPredicate {
     pub offset: usize,
     pub limit: usize,
@@ -23,11 +24,12 @@ pub struct RPredicate {
 }
 
 
-
-
+#[derive(Clone)]
 pub struct RecordIterator {
     // what special informaation is needed here?
     pub chunk_size: usize,
+
+    //TODO: lifetime
     pub table: &Table, // ref needed because of potentially large index information, this wont scale though,
                     // would have to decouple that information
     //we need like a query info

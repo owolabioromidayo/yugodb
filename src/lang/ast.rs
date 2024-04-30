@@ -41,9 +41,11 @@ pub struct Join {
 
 #[derive(Debug, Clone)]
 pub struct Source {
-    source: Expr, // i think we should shift forcing into DataCAll forwards
+    pub source: Expr, // i think we should shift forcing into DataCAll forwards
 }
 
+
+// TODO : I do not believe this 
 #[derive(Debug, Clone, Copy)]
 pub enum NodeType {
     Projection,

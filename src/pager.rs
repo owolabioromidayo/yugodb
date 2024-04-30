@@ -179,7 +179,7 @@ impl Pager  {
             }
             return Err(Error::FileNotFound)
         }
-        return Err(Error::NotFound)
+        return Err(Error::NotFound(format!("Pager could not fetch page with index {}", index)));
 
     }
 
