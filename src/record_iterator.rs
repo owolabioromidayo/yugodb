@@ -14,7 +14,9 @@ use crate::error::*;
 pub struct RPredicate {
     pub offset: usize,
     pub limit: usize,
-    pub filter: Fn, // handle using lambdas I guess, conversion would be finnicky though
+
+    //maybe we dont put this here again
+    // pub filter: Fn, // handle using lambdas I guess, conversion would be finnicky though
     pub select: Vec<String>, // selected columns
 
     // TODO: cant really handle order here, that should be in projection. Another optimization
@@ -40,23 +42,27 @@ impl RecordIterator {
         let n = RecordIterator {
             chunk_size: chunk_size,
             table: table,
-            predicate: predicate
+            predicate: predicate, 
+            progress : 0 as usize
         }; 
 
-        self.progress = self.predicate.offset; // initialize to start idx
+        n.progress = n.predicate.offset; // initialize to start idx
     }    
 
     //TODO: this means we should panic on each layer then?
-    pub fn get_next_chunk() -> Option<Records> {
+    pub fn get_next_chunk(&self) -> Option<Records> {
         //lets fetch by page number based on the offset in the index, and we need to keep track
-        if (progress >= offset + limit) {
+        if (self.progress >= self.predicate.offset + self.predicate.limit) {
             return None
         }
     
-        let ret = table.get_rows_in_range(progress, progress + chunk_size );
-        progress += chunk_size;
+        let ret = self.table.get_rows_in_range(self.progress, self.progress + self.chunk_size );
+        self.progress += self.chunk_size;
 
         Some(ret)
 
     }
 }
+
+
+//TODO: write some tests

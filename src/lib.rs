@@ -6,3 +6,4 @@ pub mod database;
 pub mod record;
 pub mod types;
 pub mod lang;
+pub mod record_iterator;

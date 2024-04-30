@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use crate::lang::types::*;
 use crate::lang::ast::*;
 use crate::record::*;
+use crate::error::*;
+use crate::record_iterator::*;
 
 
 //maybe we call this a resolver / unroller kind of thing?
@@ -28,15 +30,70 @@ use crate::record::*;
 // we are going to need iter_vec in here reall soon
 // so we would need some sort of records iterator, instead of just getting it all at once
 
+
+// we are basically creating another tree with this approach, from what IM seeing
+// creating a tree of iterators,
+
+//what if we snowball it into one large iterator of sub iterators each with their own exec functions 
+// that we define
+// so then, we are returning custom record iterators
+// think about this
+
+pub struct IterClosure {
+    get_next_chunk : Box<dyn Fn() -> Option<Records> >
+}
+
+
+
+
 struct Interpreter { 
     //some variables I guess
     // we need a better local state here
 }
 
 impl ExprVisitor<()> for Interpreter {
-    fn visit_binary(&mut self, expr: &Binary) -> Records {
+    fn visit_binary(&mut self, expr: &Binary) -> IterClosure{
 
+        let left = self.evaluate(&expr.left); 
+        let right = self.evaluate(&expr.right); 
 
+        match &expr.operator._type { 
+            TokenType::Greater =>  {
+                IterClosure {
+                    get_next_chunk :  Box::new(|| {
+                        let nleft = left.get_next_chunk();
+                        let nright= right.get_next_chunk();
+
+                        if nleft.is_some()  && nright.is_some() {
+                            let xs = nleft.unwrap(); 
+                            let ys = nright.unwrap(); 
+
+                            match (xs, ys) {
+
+                                // TODO: this aint right man, therel be too many
+                                (Records::DocumentRows(xs), Records::DocumentRows(ys)) => {
+                                    let final_records: Vec<DocumentRecord> = Vec::new();
+                                    for (x,y) in xs.iter().zip(ys.iter()) {
+                                        
+                                        // what would greater mean! thats strange?
+                                        // there has to be some extra information being packed, or this is an attribute being iterated over
+                                        // anyhow, evalute should take care of that, then this document type comparison would not be neccessary
+                                        
+                                    }
+
+                                }
+
+                                _ => unimplemented!()
+                            }
+
+                        }
+                    })
+                }
+            }   
+            _ => IterClosure {
+                get_next_chunk : Box::new(|| {None}), 
+            } 
+        }
 
     }
     fn visit_grouping(&mut self, expr: &Grouping) -> () {unimplemented!()}
@@ -74,6 +131,25 @@ impl StmtVisitor for Interpreter {
 impl Interpreter {
 
 
+    pub fn evaluate(&self, expr: &Expr) -> RecordIterator {
+
+        // we should expect some RecordIterator from this?
+        let res = match &expr{
+            Expr::Grouping(expr) => self.visit_grouping(expr),
+            Expr::Literal(expr) => self.visit_literal( expr ),
+            Expr::Unary(expr) => self.visit_unary( expr ),
+            Expr::Variable(expr) => self.visit_variable( expr) ,
+            Expr::Attribute(expr) => self.visit_attribute( expr) ,
+            Expr::Assign(expr) => self.visit_assign( expr),
+            Expr::Logical(expr) => self.visit_logical_expr( expr) ,
+            Expr::DataCall(expr) => self.visit_data_call( expr) ,
+            Expr::DataExpr(expr) => self.visit_data_expr( expr) ,
+
+        };
+    
+
+    }
+
     pub fn execute_processed_stmt(&self, stmt: &Option<Node>){
         if let Some(s) = stmt { 
             for child in &s.children {
@@ -94,7 +170,7 @@ impl Interpreter {
         }
     }
 
-    pub fn execute(&self,  ast: AST) { 
+    pub fn execute(&self,  ast: AST) -> Result<Records> { 
         // resolve all variables first
         self.resolve_variables(&ast.lookup_table);
 
@@ -103,5 +179,7 @@ impl Interpreter {
         self.execute_processed_stmt(&ast.root);
 
         // right now we have it top down, so we have to recurse and come back I guess
+
+        // what this should do is create the record iterator tree, then we iter while we can?
     }
 }
