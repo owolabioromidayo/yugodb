@@ -6,6 +6,21 @@ use crate::error::*;
 
 use bson::{bson, Bson };
 
+#[derive(Debug, Clone)]
+pub enum Record {
+    DocumentRow(DocumentRecord),
+    RelationalRow(RelationalRecord)
+}
+
+// we dont want mixed records flowing in 
+pub enum Records {
+    DocumentRows(Vec<DocumentRecord>),
+    RelationalRows(Vec<RelationalRecord>)
+}
+
+// to support vector materialization
+
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DocumentRecord {

@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use crate::lang::typechecker::*;
 
 
+
 #[derive(Debug, Clone, Copy)]
 pub enum JoinType{
     LJoin,
@@ -62,9 +63,9 @@ pub enum NodeData {
 
 #[derive(Debug, Clone)]
 pub struct Node  {
-    _type: NodeType,
-    data: NodeData,
-    children: Vec<Option<Node>>
+    pub _type: NodeType,
+    pub data: NodeData,
+    pub children: Vec<Option<Node>>
 }
 
 pub struct AST{
@@ -263,8 +264,8 @@ impl AST  {
             }
         }
 
-        if let Some(ref mut curr) = &mut self.root {
-            curr.children.push(self.processed_statements[0].clone()); // expensive
+        if let Some(ref mut root ) = &mut self.root {
+            root.children.push(self.processed_statements[0].clone()); // expensive
         }
 
     }
