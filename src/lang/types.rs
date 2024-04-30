@@ -225,10 +225,10 @@ pub trait ExprVisitor<T> {
     fn visit_data_expr(&mut self, expr: &DataExpr) -> T;
 }
 
-pub trait StmtVisitor {
-    fn visit_print_stmt(&mut self, stmt: &PrintStmt);
-    fn visit_expr_stmt(&mut self, stmt: &ExprStmt);
-    fn visit_var_stmt(&mut self, stmt: &VarStmt);
+pub trait StmtVisitor<T> {
+    fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> ();
+    fn visit_expr_stmt(&mut self, stmt: &ExprStmt) -> T;
+    fn visit_var_stmt(&mut self, stmt: &VarStmt) -> ();
     // fn visit_block_stmt(&mut self, stmt: &BlockStmt);
     // fn visit_function_stmt(&mut self, stmt: &FunctionStmt);
     // fn visit_return_stmt(&mut self, stmt: &ReturnStmt);
@@ -250,23 +250,23 @@ pub enum Expr {
     Attribute(Attribute),
 }
 
-impl Expr {
-    pub fn accept<T>(&self, visitor: &mut dyn ExprVisitor<T>) -> T {
-        match self {
-            Expr::Binary(expr) => visitor.visit_binary(expr),
-            Expr::Grouping(expr) => visitor.visit_grouping(expr),
-            Expr::Literal(expr) => visitor.visit_literal(expr),
-            Expr::Unary(expr) => visitor.visit_unary(expr),
-            // Expr::Call(expr) => visitor.visit_call_expr(expr),
-            Expr::Variable(expr) => visitor.visit_variable(expr),
-            Expr::Attribute(expr) => visitor.visit_attribute(expr),
-            Expr::Assign(expr) => visitor.visit_assign(expr),
-            Expr::Logical(expr) => visitor.visit_logical_expr(expr),
-            Expr::DataCall(expr) => visitor.visit_data_call(expr),
-            Expr::DataExpr(expr) => visitor.visit_data_expr(expr),
-        }
-    }
-}
+// impl Expr {
+//     pub fn accept<T>(&self, visitor: &mut dyn ExprVisitor<T>) -> T {
+//         match self {
+//             Expr::Binary(expr) => visitor.visit_binary(expr),
+//             Expr::Grouping(expr) => visitor.visit_grouping(expr),
+//             Expr::Literal(expr) => visitor.visit_literal(expr),
+//             Expr::Unary(expr) => visitor.visit_unary(expr),
+//             // Expr::Call(expr) => visitor.visit_call_expr(expr),
+//             Expr::Variable(expr) => visitor.visit_variable(expr),
+//             Expr::Attribute(expr) => visitor.visit_attribute(expr),
+//             Expr::Assign(expr) => visitor.visit_assign(expr),
+//             Expr::Logical(expr) => visitor.visit_logical_expr(expr),
+//             Expr::DataCall(expr) => visitor.visit_data_call(expr),
+//             Expr::DataExpr(expr) => visitor.visit_data_expr(expr),
+//         }
+//     }
+// }
 
 
 #[derive(Debug, Clone)]
@@ -359,22 +359,22 @@ pub enum Stmt {
     // Return(ReturnStmt),
 }
 
-impl Stmt {
-    pub fn accept(&self, visitor: &mut dyn StmtVisitor) {
-        match self {
-            Stmt::Expression(stmt) => visitor.visit_expr_stmt(stmt),
-            Stmt::Print(stmt) => visitor.visit_print_stmt(stmt),
-            Stmt::Var(stmt) => visitor.visit_var_stmt(stmt),
+// impl Stmt {
+//     pub fn accept(&self, visitor: &mut dyn StmtVisitor<T>) -> Option<T> {
+//         match self {
+//             Stmt::Expression(stmt) => visitor.visit_expr_stmt(stmt),
+//             Stmt::Print(stmt) => visitor.visit_print_stmt(stmt),
+//             Stmt::Var(stmt) => visitor.visit_var_stmt(stmt),
 
-            // would these ever be useful for lambdas perhaps
-            // Stmt::Block(stmt) => visitor.visit_block_stmt(stmt),
-            // Stmt::If(stmt) => visitor.visit_if_stmt(stmt),
-            // Stmt::While(stmt) => visitor.visit_while_stmt(stmt),
-            // Stmt::Function(stmt) => visitor.visit_function_stmt(stmt),
-            // Stmt::Return(stmt) => visitor.visit_return_stmt(stmt),
-        }
-    }
-}
+//             // would these ever be useful for lambdas perhaps
+//             // Stmt::Block(stmt) => visitor.visit_block_stmt(stmt),
+//             // Stmt::If(stmt) => visitor.visit_if_stmt(stmt),
+//             // Stmt::While(stmt) => visitor.visit_while_stmt(stmt),
+//             // Stmt::Function(stmt) => visitor.visit_function_stmt(stmt),
+//             // Stmt::Return(stmt) => visitor.visit_return_stmt(stmt),
+//         }
+//     }
+// }
 
 impl Literal {
     pub fn new(value: Value, _type: TokenType) -> Self {

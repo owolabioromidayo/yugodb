@@ -30,7 +30,10 @@ pub struct RecordIterator {
     pub chunk_size: usize,
 
     //TODO: lifetime
-    pub table: &Table, // ref needed because of potentially large index information, this wont scale though,
+    // this is needed? we cant just pass it in the func
+    // passing it in the fun would work also, but might not be as clean
+
+    // pub table: &Table, // ref needed because of potentially large index information, this wont scale though,
                     // would have to decouple that information
     //we need like a query info
     // predicate, offset, range, that kind of thing
@@ -40,25 +43,26 @@ pub struct RecordIterator {
 
 impl RecordIterator {
 
-    pub fn new(chunk_size:usize, table: &Table, predicate: RPredicate) -> Self {
-        let n = RecordIterator {
+    pub fn new(chunk_size:usize, predicate: RPredicate) -> Self {
+        let mut n = RecordIterator {
             chunk_size: chunk_size,
-            table: table,
+            // table: table,
             predicate: predicate, 
             progress : 0 as usize
         }; 
 
         n.progress = n.predicate.offset; // initialize to start idx
+        n 
     }    
 
     //TODO: this means we should panic on each layer then?
-    pub fn get_next_chunk(&self) -> Option<Records> {
+    pub fn get_next_chunk(&mut self, table: &mut Table) -> Option<Records> {
         //lets fetch by page number based on the offset in the index, and we need to keep track
         if (self.progress >= self.predicate.offset + self.predicate.limit) {
             return None
         }
     
-        let ret = self.table.get_rows_in_range(self.progress, self.progress + self.chunk_size );
+        let ret = table.get_rows_in_range(self.progress, self.progress + self.chunk_size );
         self.progress += self.chunk_size;
 
         Some(ret)

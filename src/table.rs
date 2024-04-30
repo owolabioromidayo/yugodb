@@ -4,6 +4,7 @@ use crate::btree::*;
 use crate::record::*;
 use crate::types::*;
 
+use crate::btree::*;
 use crate::error::*;
 use crate::pager::*;
 
@@ -30,7 +31,9 @@ pub struct Table {
     //how do we want to store the page indexes
     // we just need the most recent
     curr_page_id: usize,
-    default_index: HashMap<usize, usize>, //tbale page index -> filename, file_page_index
+    curr_row_id: usize,
+    page_index: HashMap<usize, usize>, //table page index -> filename, file_page_index
+    default_index: BPTreeInternalNode,
     indexes: HashMap<String, Option<BPTreeInternalNode>>, // need more than one for column dbs
 }
 
@@ -88,7 +91,10 @@ impl Table {
             new_document_page.add_record(row);
             new_page.bytes = bson::to_vec(&new_document_page)?;
             self.curr_page_id += 1;
-            self.default_index.insert(new_page.index, self.curr_page_id);
+            self.page_index.insert(new_page.index, self.curr_page_id);
+            self.default_index
+                .insert(self.curr_row_id, self.curr_page_id, 0); // TODO: can offset be useful here?
+                                                                 // , no since we are just doing it on page creation
             pager.flush_page(&new_page)?;
         } else {
             // Append the record to the current page
@@ -102,25 +108,31 @@ impl Table {
 
     pub fn insert_document_rows(pager: &Pager, rows: Vec<DocumentRecord>) {
         unimplemented!()
+
+        // insert rows until the last page is filled
+        // then create new pages here
     }
 
     pub fn get_document_rows_in_range(&self, start:usize, end:usize) -> Records {
-        
+        //retrieval
+        unimplemented!()
+
+    }
+
+    pub fn get_rows_in_range(&mut self, start:usize, end:usize) -> Records {
+        match (&self._type, &self.storage_method) {
+            (TableType::Document, StorageModel::Row) =>  {
+                return self.get_document_rows_in_range(start, end)
+            }
+            _ => unimplemented!()
+        }
+    // match based on the schema and document model, figure out what to do
+
     }
     pub fn insert_rows() {}
     pub fn delete_row() {}
     pub fn get_row() {} //takes an id
     pub fn get_all_rows() {}
-    pub fn get_rows_in_range(&self, start:usize, end:usize) -> Records {
-        match (self._type, self.storage_method) {
-            (TableType::Document, StorageModel::Row) =>  {
-                return self.get_document_rows_in_range(start, end)
-            }   
-            _ => unimplemented!()
-        }
-    // match based on the schema and document model, figure out what to do  
-
-    }
 
     // we might also want to selectively filter what gets pushed upstream from here
     pub fn get_row_with_select() {} //takes an id
@@ -149,6 +161,7 @@ mod tests {
 
     #[test]
     fn test_insert_document_row() {
+        // TODO: test get here too
         let mut pager = Pager::new("test".to_string());
         //initialize 10 pages
         for _ in 0..10 {
@@ -160,7 +173,9 @@ mod tests {
             _type: TableType::Document,
             storage_method: StorageModel::Row,
             curr_page_id: 0,
-            default_index: HashMap::new(),
+            curr_row_id: 0,
+            page_index: HashMap::new(),
+            default_index: BPTreeInternalNode::new(),
             indexes: HashMap::new(),
         };
 
