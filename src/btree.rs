@@ -27,53 +27,64 @@
 // use std::iter;
 use crate::error::{Error, Result};
 use std::collections::HashMap;
+use std::hash::Hash; 
+use std::fmt::Debug; 
 
 const M: usize = 32;
 
+trait BKey:  PartialEq + Ord + Hash + Debug + Clone {} 
+
+
+impl BKey for usize {}
+impl BKey for &usize {}
+impl BKey for String {}
+impl BKey for &String {}
+// impl BKey for {}
+
 #[derive(Clone)]
-pub enum BPTreeNodeEnum {
-    Internal(BPTreeInternalNode),
-    Leaf(BPTreeLeafNode),
+pub enum BPTreeNodeEnum <T: BKey, U: Debug + Clone> {
+    Internal(BPTreeInternalNode <T, U>),
+    Leaf(BPTreeLeafNode<T, U>),
 }
 
-pub trait BPTreeNode {
+pub trait BPTreeNode <T: BKey, U: Debug + Clone> {
     // fn new() -> Result<BPTreeNodeEnum>;
 
     fn serialize(&self) -> Vec<u8>;
     // fn deserialize() -> Result<Box<dyn BPTreeNode>>;
 
-    fn search(&self, key: usize) -> Option<(usize, u8)>;
-    fn insert(&mut self, key: usize, page: usize, offset: u8) -> Result<()>;
+    fn search(&self, key: T) -> Option<&U>;
+    fn insert(&mut self, key: T, value: U) -> Result<()>;
 
     fn is_leaf(&self) -> bool;
     fn is_root(&self) -> bool;
 
-    fn split(&self) -> Result<BPTreeInternalNode>;
+    fn split(&mut self) -> Result<BPTreeInternalNode< T, U>>;
 }
 
 #[derive(Clone)]
-pub struct BPTreeInternalNode {
-    keys: Vec<usize>, // capacity M
+pub struct BPTreeInternalNode <T: BKey, U: Debug + Clone > {
+    keys: Vec<T>, // capacity M
     is_root: bool,
-    children: Vec<Option<BPTreeNodeEnum>>, // capacity M+1
+    children: Vec<Option<BPTreeNodeEnum<T, U>>>, // capacity M+1
 }
 
 #[derive(Clone)]
-pub struct BPTreeLeafNode {
-    values: HashMap<usize, (usize, u8)>,
-    next_node: Option<Box<BPTreeLeafNode>>, //  LList
+pub struct BPTreeLeafNode<T: PartialEq, U> {
+    values: HashMap<T, U>,
+    next_node: Option<Box<BPTreeLeafNode<T, U>>>, //  LList
 }
 
 // struct BPlusTree {
 //     root: BPTreeInternalNode
 // }
 
-impl BPTreeNode for BPTreeLeafNode {
-    fn search(&self, key: usize) -> Option<(usize, u8)> {
-        println!("We are in leaf now here {key} ");
+impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeLeafNode<T, U> {
+    fn search(&self, key: T) -> Option<&U> {
+        // println!("We are in leaf now here {key} ");
         if let Some(x) = self.values.get(&key) {
             println!("{:?}", x);
-            return Some(*x);
+            return Some(x);
         }
 
         None
@@ -94,20 +105,20 @@ impl BPTreeNode for BPTreeLeafNode {
     //     unimplemented!()
     // }
 
-    fn insert(&mut self, key: usize, page: usize, offset: u8) -> Result<()> {
+    fn insert(&mut self, key: T, val: U) -> Result<()> {
         //if it makes it all the way here, its fine
-        self.values.insert(key, (page, offset));
+        self.values.insert(key, val);
         Ok(())
     }
 
-    fn split(&self) -> Result<BPTreeInternalNode> {
-        let mut keys: Vec<&usize> = self.values.keys().collect();
+    fn split(&mut self) -> Result<BPTreeInternalNode<T, U>> {
+        let mut keys: Vec<&T> = self.values.keys().collect();
         keys.sort();
         let mid = keys.len() / 2;
         let middle_key = keys[mid];
 
-        let mut left_map = HashMap::new();
-        let mut right_map = HashMap::new();
+        let mut left_map: HashMap<T, U> = HashMap::new();
+        let mut right_map:HashMap<T, U> = HashMap::new();
 
         for (key, value) in &self.values {
             if key < middle_key {
@@ -117,17 +128,18 @@ impl BPTreeNode for BPTreeLeafNode {
             }
         }
 
-        let new_right_leaf_node = BPTreeLeafNode {
+        let new_right_leaf_node: BPTreeLeafNode<T, U> = BPTreeLeafNode {
             values: right_map,
             next_node: None,
         };
 
-        let new_left_leaf_node = BPTreeLeafNode {
+        let new_left_leaf_node: BPTreeLeafNode<T, U> = BPTreeLeafNode {
             values: left_map,
-            next_node: Some(Box::new(new_right_leaf_node.clone())), // this is so wrong
+            next_node:  None,
+            // next_node: Some(Box::new(new_right_leaf_node)), // this is so wrong ( why clone, I just moved it)
         };
 
-        let mut new_node = BPTreeInternalNode::new();
+        let mut new_node: BPTreeInternalNode<T, U> = BPTreeInternalNode::new();
         new_node.keys[0] = middle_key.clone();
         new_node.children[0] = Some(BPTreeNodeEnum::Leaf(new_left_leaf_node));
         new_node.children[1] = Some(BPTreeNodeEnum::Leaf(new_right_leaf_node));
@@ -136,8 +148,8 @@ impl BPTreeNode for BPTreeLeafNode {
     }
 }
 
-impl BPTreeNode for BPTreeInternalNode {
-    fn search(&self, key: usize) -> Option<(usize, u8)> {
+impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T,U> {
+    fn search(&self, key: T) -> Option<&U> {
         let mut ret = None;
 
         //check first one
@@ -166,7 +178,7 @@ impl BPTreeNode for BPTreeInternalNode {
         None
     }
 
-    fn insert(&mut self, key: usize, page: usize, offset: u8) -> Result<()> {
+    fn insert(&mut self, key: T, value: U) -> Result<()> {
         //top down is worse than splitting upwards it seems
 
         //okay, so we always insert at the end, that makes sense right
@@ -179,10 +191,10 @@ impl BPTreeNode for BPTreeInternalNode {
             // self.children.insert(index, value);
 
             // create a new child?
-            let mut new_child = BPTreeInternalNode::new();
-            new_child.keys[0] = key;
+            let mut new_child: BPTreeInternalNode<T, U> = BPTreeInternalNode::new();
+            new_child.keys[0] = key.clone();
             let mut new_child_leaf = BPTreeLeafNode::new();
-            new_child_leaf.insert(key, page, offset)?;
+            new_child_leaf.insert(key, value )?;
             new_child.children[1] = Some(BPTreeNodeEnum::Leaf(new_child_leaf));
 
             self.children
@@ -198,12 +210,12 @@ impl BPTreeNode for BPTreeInternalNode {
                         match curr {
                             BPTreeNodeEnum::Leaf(x) => {
                                 if x.values.len() < M.into() {
-                                    x.insert(key, page, offset)?;
+                                    x.insert(key.clone(), value.clone())?;
                                 } else {
                                     // we need to split the leaf node
                                     //naive, create a new internal node which refs the 2 leaf nodes
                                     let mut new_internal_node = x.split()?;
-                                    new_internal_node.insert(key, page, offset)?;
+                                    new_internal_node.insert(key.clone(), value.clone())?;
                                     *curr = BPTreeNodeEnum::Internal(new_internal_node);
                                 }
                             }
@@ -212,10 +224,10 @@ impl BPTreeNode for BPTreeInternalNode {
                                 // we need to check if theyre actually populated
                                 if x.is_full() {
                                     let mut new_internal_node = x.split()?;
-                                    new_internal_node.insert(key, page, offset)?;
+                                    new_internal_node.insert(key.clone(), value.clone())?;
                                     *curr = BPTreeNodeEnum::Internal(new_internal_node);
                                 } else {
-                                    x.insert(key, page, offset)?;
+                                    x.insert(key.clone(), value.clone())?;
                                 }
                             }
                         }
@@ -227,13 +239,14 @@ impl BPTreeNode for BPTreeInternalNode {
             if let Some(curr) = &mut self.children[len - 1] {
                 match curr {
                     BPTreeNodeEnum::Leaf(x) => {
-                        if x.values.len() < M.into() {
-                            x.insert(key, page, offset)?;
+                        if x.values.len() < M {
+                            x.insert(key, value)?;
                         } else {
                             // we need to split the leaf node
                             //naive, create a new internal node which refs the 2 leaf nodes
+
                             let mut new_internal_node = x.split()?;
-                            new_internal_node.insert(key, page, offset)?;
+                            new_internal_node.insert(key, value)?;
                             *curr = BPTreeNodeEnum::Internal(new_internal_node);
                         }
                     }
@@ -242,10 +255,10 @@ impl BPTreeNode for BPTreeInternalNode {
                         // we need to check if theyre actually populated
                         if x.is_full() {
                             let mut new_internal_node = x.split()?;
-                            new_internal_node.insert(key, page, offset)?;
+                            new_internal_node.insert(key, value)?;
                             *curr = BPTreeNodeEnum::Internal(new_internal_node);
                         } else {
-                            x.insert(key, page, offset)?;
+                            x.insert(key, value)?;
                         }
                     }
                 }
@@ -270,7 +283,7 @@ impl BPTreeNode for BPTreeInternalNode {
     //     unimplemented!()
     // }
 
-    fn split(&self) -> Result<BPTreeInternalNode> {
+    fn split(&mut self) -> Result<BPTreeInternalNode<T, U>> {
         //TODO: important piece of the puzzle
 
         // do i need a reference to its head? s owe can try insert some things there
@@ -292,21 +305,22 @@ impl BPTreeNode for BPTreeInternalNode {
         };
 
         let mid = M / 2;
-        let split_key = self.keys[mid];
+        let split_key = self.keys[mid].clone();
 
         // Move keys and children to the left node
         left_node.keys = self.keys[..mid].to_vec();
-        left_node.children = self.children[..mid + 1]
-            .iter()
-            .map(|child| child.clone())
-            .collect(); // slow af it seems
+        // left_node.children = self.children[..mid + 1].to_vec(); 
+        left_node.children = self.children.drain(..mid + 1).collect();
+
 
         // Move keys and children to the right node
         right_node.keys = self.keys[mid + 1..].to_vec();
-        right_node.children = self.children[mid + 1..]
-            .iter()
-            .map(|child| child.clone())
-            .collect(); // slow af it seems
+        // right_node.children = self.children[mid + 1..]
+        //     .iter()
+        //     .map(|child| child.clone())
+        //     .collect(); // slow af it seems
+
+        right_node.children = self.children.drain(mid + 1..).collect();
 
         // Create a new parent node
         let mut parent_node = BPTreeInternalNode::new();
@@ -317,8 +331,9 @@ impl BPTreeNode for BPTreeInternalNode {
         Ok(parent_node)
     }
 }
-impl BPTreeLeafNode {
-    fn new() -> BPTreeLeafNode {
+
+impl <T: PartialEq, U> BPTreeLeafNode<T, U> {
+    fn new() -> BPTreeLeafNode<T, U> {
         BPTreeLeafNode {
             values: HashMap::new(), // TODO: rename to map?
             next_node: None,
@@ -326,11 +341,11 @@ impl BPTreeLeafNode {
     }
 }
 
-impl BPTreeInternalNode {
+impl <T: BKey, U: Debug + Clone> BPTreeInternalNode<T,U> {
     pub fn new() -> Self {
         BPTreeInternalNode {
-            keys: vec![0; M],
-            children: vec![None; M + 1],
+            keys: Vec::with_capacity(M),
+            children: Vec::with_capacity(M+1),
             is_root: false,
         }
     }
@@ -338,13 +353,20 @@ impl BPTreeInternalNode {
     // fn merge() {}
 
     fn is_full(&self) -> bool {
+        // let mut max = 0;
+        // for (id, k) in self.keys.iter().enumerate() {
+        //     if *k != 0 {
+        //         max += 1;
+        //     }
+        // }
+        // return max == M;
         let mut max = 0;
-        for (id, k) in self.keys.iter().enumerate() {
-            if *k != 0 {
+        for (id, k) in self.children.iter().enumerate() {
+            if let Some(_) = k {
                 max += 1;
             }
         }
-        return max == M;
+        return max == M+1;
     }
 }
 
@@ -354,48 +376,48 @@ mod tests {
 
     #[test]
     fn test_leaf_node_insert_and_search() {
-        let mut leaf_node = BPTreeLeafNode::new();
-        leaf_node.insert(10, 1, 0).unwrap();
-        leaf_node.insert(20, 2, 0).unwrap();
-        leaf_node.insert(30, 3, 0).unwrap();
+        let mut leaf_node: BPTreeLeafNode<usize, (usize, u8)> = BPTreeLeafNode::new();
+        leaf_node.insert(10, (1, 0)).unwrap();
+        leaf_node.insert(20, (2, 0)).unwrap();
+        leaf_node.insert(30, (3, 0)).unwrap();
 
-        assert_eq!(leaf_node.search(10), Some((1, 0)));
-        assert_eq!(leaf_node.search(20), Some((2, 0)));
-        assert_eq!(leaf_node.search(30), Some((3, 0)));
+        assert_eq!(leaf_node.search(10), Some(&(1, 0)));
+        assert_eq!(leaf_node.search(20), Some(&(2, 0)));
+        assert_eq!(leaf_node.search(30), Some(&(3, 0)));
         assert_eq!(leaf_node.search(40), None);
     }
 
     #[test]
     fn test_internal_node_insert_and_search() {
         let mut internal_node = BPTreeInternalNode::new();
-        let mut leaf_node1 = BPTreeLeafNode::new();
-        let mut leaf_node2 = BPTreeLeafNode::new();
+        let mut leaf_node1: BPTreeLeafNode<usize, (usize, u8)> = BPTreeLeafNode::new();
+        let mut leaf_node2: BPTreeLeafNode<usize, (usize, u8)> = BPTreeLeafNode::new();
 
-        leaf_node1.insert(10, 1, 0).unwrap();
-        leaf_node1.insert(20, 2, 0).unwrap();
+        leaf_node1.insert(10, (1, 0)).unwrap();
+        leaf_node1.insert(20, (2, 0)).unwrap();
 
-        leaf_node2.insert(30, 3, 0).unwrap();
-        leaf_node2.insert(40, 4, 0).unwrap();
+        leaf_node2.insert(30, (3, 0)).unwrap();
+        leaf_node2.insert(40, (4, 0)).unwrap();
 
         internal_node.keys[0] = 30;
         internal_node.children[0] = Some(BPTreeNodeEnum::Leaf((leaf_node1)));
         internal_node.children[1] = Some(BPTreeNodeEnum::Leaf((leaf_node2)));
 
-        assert_eq!(internal_node.search(11), Some((1, 0)));
-        assert_eq!(internal_node.search(20), Some((2, 0)));
-        assert_eq!(internal_node.search(30), Some((3, 0)));
-        assert_eq!(internal_node.search(40), Some((4, 0)));
+        assert_eq!(internal_node.search(11), Some(&(1, 0)));
+        assert_eq!(internal_node.search(20), Some(&(2, 0)));
+        assert_eq!(internal_node.search(30), Some(&(3, 0)));
+        assert_eq!(internal_node.search(40), Some(&(4, 0)));
         assert_eq!(internal_node.search(50), None);
     }
 
     #[test]
     fn test_split_leaf_node() {
-        let mut leaf_node = BPTreeLeafNode::new();
-        leaf_node.insert(10, 1, 0).unwrap();
-        leaf_node.insert(20, 2, 0).unwrap();
-        leaf_node.insert(30, 3, 0).unwrap();
-        leaf_node.insert(40, 4, 0).unwrap();
-        leaf_node.insert(50, 5, 0).unwrap();
+        let mut leaf_node: BPTreeLeafNode<usize, (usize, u8)> = BPTreeLeafNode::new();
+        leaf_node.insert(10, (1, 0)).unwrap();
+        leaf_node.insert(20, (2, 0)).unwrap();
+        leaf_node.insert(30, (3, 0)).unwrap();
+        leaf_node.insert(40, (4, 0)).unwrap();
+        leaf_node.insert(50, (5, 0)).unwrap();
 
         let new_node = leaf_node.split().unwrap();
         let internal_node = new_node;
@@ -407,8 +429,8 @@ mod tests {
         match left_child {
             BPTreeNodeEnum::Leaf(left_child) => {
                 // assert_eq!(left_child.values.len(), 2);
-                assert_eq!(left_child.search(10), Some((1, 0)));
-                assert_eq!(left_child.search(20), Some((2, 0)));
+                assert_eq!(left_child.search(10), Some(&(1, 0)));
+                assert_eq!(left_child.search(20), Some(&(2, 0)));
             }
             BPTreeNodeEnum::Internal(n) => (),
         }
@@ -417,9 +439,9 @@ mod tests {
         match right_child {
             BPTreeNodeEnum::Leaf(right_child) => {
                 // assert_eq!(right_child.values.len(), 3);
-                assert_eq!(right_child.search(30), Some((3, 0)));
-                assert_eq!(right_child.search(40), Some((4, 0)));
-                assert_eq!(right_child.search(50), Some((5, 0)));
+                assert_eq!(right_child.search(30), Some(&(3, 0)));
+                assert_eq!(right_child.search(40), Some(&(4, 0)));
+                assert_eq!(right_child.search(50), Some(&(5, 0)));
             }
 
             BPTreeNodeEnum::Internal(n) => (),
