@@ -7,6 +7,7 @@ use crate::types::*;
 use crate::btree::*;
 use crate::error::*;
 use crate::pager::*;
+use crate::schema::*;
 
 use bson::{bson, Bson};
 use serde::{Deserialize, Serialize};
@@ -49,8 +50,48 @@ impl Table {
     }
     // need to be able to package into new pages and update index(es)
 
-    pub fn insert_relational_row(pager: &Pager, row: RelationalRecord) {
-        unimplemented!()
+    pub fn insert_relational_row(&mut self, pager: &mut Pager, row: RelationalRecord) -> Result<bool> {
+        // unimplemented!()
+        let schema = match &self.schema {
+            Schema::Relational(x) => x,
+            _ => panic!("Unsupported schema type for relational record")
+        };
+
+        let mut curr_page = pager.get_page_forced(self.curr_page_id)?;
+        let mut document_page = match RelationalRecordPage::deserialize(&curr_page.bytes, &schema) {
+            Ok(page) => page,
+            Err(_) => RelationalRecordPage::new(),
+        };
+
+
+        let new_data = row.serialize(&schema);
+        if new_data.len() > PAGE_SIZE_BYTES {
+            return Err(Error::Unknown(
+                "Document size too large to be written to page".to_string(),
+            ));
+        }
+
+        //TODO
+        // if bson::to_vec(&document_page)?.len() + new_data.len() > PAGE_SIZE_BYTES {
+        //     // Create a new page if adding the new record exceeds the page size
+        //     let mut new_page: Page = pager.create_new_page()?;
+        //     let mut new_document_page = RelationalRecordPage::new();
+        //     new_document_page.add_record(row);
+        //     new_page.bytes = bson::to_vec(&new_document_page)?;
+        //     self.curr_page_id += 1;
+        //     self.page_index.insert(new_page.index, self.curr_page_id);
+        //     self.default_index
+        //         .insert(self.curr_row_id, self.curr_page_id, 0); // TODO: can offset be useful here?
+        //                                                          // , no since we are just doing it on page creation
+        //     pager.flush_page(&new_page)?;
+        // } else {
+        //     // Append the record to the current page
+        //     document_page.add_record(row);
+        //     curr_page.bytes = bson::to_vec(&document_page)?;
+        //     pager.flush_page(&curr_page)?;
+        //     // self.curr_page_id
+        // }
+        Ok(true)
     }
 
     //TODO, ser / deser of different page variants might actually make things easier, not as low level maybe

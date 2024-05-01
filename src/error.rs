@@ -23,6 +23,12 @@ impl From<std::io::Error> for Error {
     }
 }
 
+// impl From<error::Error> for Error {
+//     fn from(err: std::io::Error) -> Self {
+//         Error::IoError(err)
+//     }
+// }
+
 impl From<bson::ser::Error> for Error {
     fn from(err: bson::ser::Error) -> Self {
         Error::BsonError(err)

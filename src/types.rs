@@ -1,3 +1,8 @@
 use std::collections::HashMap;
 
-pub type Schema = HashMap<String, String>; 
+pub enum RelationalType{
+    Boolean,
+    Number, // just floats
+    Numeric, // for more sensitive data
+    String(usize),
+}
