@@ -53,7 +53,7 @@ pub trait BPTreeNode <T: BKey, U: Debug + Clone> {
     fn serialize(&self) -> Vec<u8>;
     // fn deserialize() -> Result<Box<dyn BPTreeNode>>;
 
-    fn search(&self, key: T) -> Option<&U>;
+    fn search(&self, key: &T) -> Option<&U>;
     fn insert(&mut self, key: T, value: U) -> Result<()>;
 
     fn is_leaf(&self) -> bool;
@@ -80,9 +80,9 @@ pub struct BPTreeLeafNode<T: PartialEq, U> {
 // }
 
 impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeLeafNode<T, U> {
-    fn search(&self, key: T) -> Option<&U> {
+    fn search(&self, key: &T) -> Option<&U> {
         // println!("We are in leaf now here {key} ");
-        if let Some(x) = self.values.get(&key) {
+        if let Some(x) = self.values.get(key) {
             println!("{:?}", x);
             return Some(x);
         }
@@ -149,11 +149,11 @@ impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeLeafNode<T, U> {
 }
 
 impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T,U> {
-    fn search(&self, key: T) -> Option<&U> {
+    fn search(&self, key: &T) -> Option<&U> {
         let mut ret = None;
 
         //check first one
-        if key < self.keys[0] {
+        if *key < self.keys[0] {
             if let Some(x) = &self.children[0 as usize] {
                 ret = match x {
                     BPTreeNodeEnum::Leaf(y) => y.search(key),
@@ -163,7 +163,7 @@ impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T,U> {
             return ret;
         } else {
             for (_id, k) in self.keys.iter().enumerate() {
-                if key >= *k {
+                if key >= k {
                     //return on first occurence
                     if let Some(x) = &self.children[_id + 1] {
                         match x {
@@ -382,10 +382,10 @@ mod tests {
         leaf_node.insert(20, (2, 0)).unwrap();
         leaf_node.insert(30, (3, 0)).unwrap();
 
-        assert_eq!(leaf_node.search(10), Some(&(1, 0)));
-        assert_eq!(leaf_node.search(20), Some(&(2, 0)));
-        assert_eq!(leaf_node.search(30), Some(&(3, 0)));
-        assert_eq!(leaf_node.search(40), None);
+        assert_eq!(leaf_node.search(&10), Some(&(1, 0)));
+        assert_eq!(leaf_node.search(&20), Some(&(2, 0)));
+        assert_eq!(leaf_node.search(&30), Some(&(3, 0)));
+        assert_eq!(leaf_node.search(&40), None);
     }
 
     #[test]
@@ -407,11 +407,11 @@ mod tests {
         internal_node.children[0] = Some(BPTreeNodeEnum::Leaf((leaf_node1)));
         internal_node.children[1] = Some(BPTreeNodeEnum::Leaf((leaf_node2)));
 
-        assert_eq!(internal_node.search(10), Some(&(1, 0)));
-        assert_eq!(internal_node.search(20), Some(&(2, 0)));
-        assert_eq!(internal_node.search(30), Some(&(3, 0)));
-        assert_eq!(internal_node.search(40), Some(&(4, 0)));
-        assert_eq!(internal_node.search(50), None);
+        assert_eq!(internal_node.search(&10), Some(&(1, 0)));
+        assert_eq!(internal_node.search(&20), Some(&(2, 0)));
+        assert_eq!(internal_node.search(&30), Some(&(3, 0)));
+        assert_eq!(internal_node.search(&40), Some(&(4, 0)));
+        assert_eq!(internal_node.search(&50), None);
     }
 
     #[test]
@@ -433,8 +433,8 @@ mod tests {
         match left_child {
             BPTreeNodeEnum::Leaf(left_child) => {
                 // assert_eq!(left_child.values.len(), 2);
-                assert_eq!(left_child.search(10), Some(&(1, 0)));
-                assert_eq!(left_child.search(20), Some(&(2, 0)));
+                assert_eq!(left_child.search(&10), Some(&(1, 0)));
+                assert_eq!(left_child.search(&20), Some(&(2, 0)));
             }
             BPTreeNodeEnum::Internal(n) => (),
         }
@@ -443,9 +443,9 @@ mod tests {
         match right_child {
             BPTreeNodeEnum::Leaf(right_child) => {
                 // assert_eq!(right_child.values.len(), 3);
-                assert_eq!(right_child.search(30), Some(&(3, 0)));
-                assert_eq!(right_child.search(40), Some(&(4, 0)));
-                assert_eq!(right_child.search(50), Some(&(5, 0)));
+                assert_eq!(right_child.search(&30), Some(&(3, 0)));
+                assert_eq!(right_child.search(&40), Some(&(4, 0)));
+                assert_eq!(right_child.search(&50), Some(&(5, 0)));
             }
 
             BPTreeNodeEnum::Internal(n) => (),

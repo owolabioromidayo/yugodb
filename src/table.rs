@@ -158,16 +158,39 @@ impl Table {
         // then create new pages here
     }
 
-    pub fn get_document_rows_in_range(&self, start:usize, end:usize) -> Records {
-        //retrieval
-        unimplemented!()
 
+    pub fn get_document_rows_in_range(&self, pager: &mut Pager, start: usize, end: usize) -> Result<Records> {
+    let mut records = Vec::new();
+
+        for row_id in start..=end {
+            // Get the page and offset for the current row ID from the default index
+            if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
+                // Fetch the page from the pager
+                let page = pager.get_page_forced(*page_id)?;
+
+                let document_page = match DocumentRecordPage::deserialize(&page.bytes) {
+                    Ok(page) => page,
+                    Err(_) => continue, // Skip if deser fails ? Do we panic instead?
+                };
+
+                //TODO: so the offset value should be the index in the page vec?
+                // how about we just deserialize that portion then?
+                // would need to change our document serialization strat, make it more custom
+                if let Some(record) = document_page.records.get(*offset as usize) {
+                    //feels wasteful man
+                    records.push(record.clone());
+                }
+            }
     }
 
-    pub fn get_rows_in_range(&mut self, start:usize, end:usize) -> Records {
+    Ok(Records::DocumentRows(records))
+}
+
+
+    pub fn get_rows_in_range(&mut self, pager: &mut Pager, start:usize, end:usize) -> Result<Records> {
         match (&self._type, &self.storage_method) {
             (TableType::Document, StorageModel::Row) =>  {
-                return self.get_document_rows_in_range(start, end)
+                return self.get_document_rows_in_range(pager, start, end)
             }
             _ => unimplemented!()
         }
@@ -209,6 +232,8 @@ impl Table {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    //TODO: test insert relational row
 
     #[test]
     fn test_insert_document_row() {
