@@ -56,6 +56,8 @@ impl RecordIterator {
     }    
 
     //TODO: this means we should panic on each layer then?
+    //TODO: we might need size constraints so the dataflow is synchronized
+    // we might have to make those size constraints large to cater for the efficiency of columnar page storage 
     pub fn get_next_chunk(&mut self, table: &mut Table) -> Option<Records> {
         //lets fetch by page number based on the offset in the index, and we need to keep track
         if (self.progress >= self.predicate.offset + self.predicate.limit) {

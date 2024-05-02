@@ -32,13 +32,13 @@ use std::fmt::Debug;
 
 const M: usize = 32;
 
-trait BKey:  PartialEq + Ord + Hash + Debug + Clone {} 
+pub trait BKey:  PartialEq + Ord + Hash + Debug + Clone + Default {} 
 
 
 impl BKey for usize {}
-impl BKey for &usize {}
+// impl BKey for &usize {}
 impl BKey for String {}
-impl BKey for &String {}
+// impl BKey for &String {}
 // impl BKey for {}
 
 #[derive(Clone)]
@@ -344,8 +344,9 @@ impl <T: PartialEq, U> BPTreeLeafNode<T, U> {
 impl <T: BKey, U: Debug + Clone> BPTreeInternalNode<T,U> {
     pub fn new() -> Self {
         BPTreeInternalNode {
-            keys: Vec::with_capacity(M),
-            children: Vec::with_capacity(M+1),
+            //TODO : are the sizes secure enough?
+            keys: vec![T::default(); M],
+            children: vec![None ; M+1],
             is_root: false,
         }
     }
@@ -399,11 +400,14 @@ mod tests {
         leaf_node2.insert(30, (3, 0)).unwrap();
         leaf_node2.insert(40, (4, 0)).unwrap();
 
+        
+       
         internal_node.keys[0] = 30;
+        // internal_node.keys.push(30);
         internal_node.children[0] = Some(BPTreeNodeEnum::Leaf((leaf_node1)));
         internal_node.children[1] = Some(BPTreeNodeEnum::Leaf((leaf_node2)));
 
-        assert_eq!(internal_node.search(11), Some(&(1, 0)));
+        assert_eq!(internal_node.search(10), Some(&(1, 0)));
         assert_eq!(internal_node.search(20), Some(&(2, 0)));
         assert_eq!(internal_node.search(30), Some(&(3, 0)));
         assert_eq!(internal_node.search(40), Some(&(4, 0)));

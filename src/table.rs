@@ -32,9 +32,13 @@ pub struct Table {
     //how do we want to store the page indexes
     // we just need the most recent
     curr_page_id: usize,
-    curr_row_id: usize,
+    curr_row_id: usize, // db row count basically
     page_index: HashMap<usize, usize>, //table page index -> filename, file_page_index
+
     default_index: BPTreeInternalNode<usize, (usize, u8, u8)>, // page, offset and len
+    // TODO : setting the index type here defeats all generic programming
+    // fuck, have to use an enum of diff configurations I guess
+    // guess making another trait would use more code, fk 
     indexes: HashMap<String, Option<BPTreeInternalNode< usize, (usize, u8, u8)>>>, // need more than one for column dbs
 }
 
@@ -134,7 +138,7 @@ impl Table {
             self.curr_page_id += 1;
             self.page_index.insert(new_page.index, self.curr_page_id);
             self.default_index
-                .insert(self.curr_row_id, (self.curr_page_id, 0, 0)); // TODO: can offset be useful here?
+                .insert(self.curr_row_id, (self.curr_page_id, 0, 0)).unwrap(); // TODO: can offset be useful here?
                                                                  // , no since we are just doing it on page creation
             pager.flush_page(&new_page)?;
         } else {
@@ -170,6 +174,9 @@ impl Table {
     // match based on the schema and document model, figure out what to do
 
     }
+
+
+
     pub fn insert_rows() {}
     pub fn delete_row() {}
     pub fn get_row() {} //takes an id
@@ -185,6 +192,9 @@ impl Table {
     pub fn get_column() {} //takes an id
     pub fn get_all_column() {} // get * for that column
     pub fn get_column_in_range() {}
+
+    //TODO: inserting a row in a columnar database
+    //TODO: inserting a column in a columnar database
 
     // we might also want to selectively filter what gets pushed upstream from here
     pub fn get_column_with_select() {} //takes an id
