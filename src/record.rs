@@ -12,12 +12,14 @@ use bson::{bson, Bson};
 #[derive(Debug, Clone)]
 pub enum Record {
     DocumentRow(DocumentRecord),
+    DocumentColumn(ColumnarDocumentRecord),
     RelationalRow(RelationalRecord),
 }
 
 // we dont want mixed records flowing in
 pub enum Records {
     DocumentRows(Vec<DocumentRecord>),
+    DocumentColumns(Vec<ColumnarDocumentRecord>),
     RelationalRows(Vec<RelationalRecord>),
 }
 
@@ -41,19 +43,19 @@ pub enum DocumentValue {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DocumentRecordPage {
-    pub records: Vec<DocumentRecord>, // metadata
+    pub records: Vec<DocumentRecord>, // metadata too maybe?
 }
 
 impl DocumentRecord {
     pub fn new() -> Self {
-        DocumentRecord {
+        Self {
             id: None,
             fields: HashMap::new(),
         }
     }
 
     pub fn with_id(id: usize) -> Self {
-        DocumentRecord {
+        Self {
             id: Some(id),
             fields: HashMap::new(),
         }
@@ -106,13 +108,13 @@ impl DocumentRecord {
 
 impl DocumentRecordPage {
     pub fn new() -> Self {
-        DocumentRecordPage {
+        Self{
             records: Vec::new(),
         }
     }
 
     pub fn with_records(records: Vec<DocumentRecord>) -> Self {
-        DocumentRecordPage { records }
+        Self { records }
     }
 
     pub fn add_record(&mut self, record: DocumentRecord) {
@@ -187,14 +189,14 @@ pub fn get_byte_size(schema: &RelationalSchema) -> usize {
 
 impl RelationalRecord {
     pub fn new() -> Self {
-        RelationalRecord {
+        Self {
             id: None,
             fields: HashMap::new(),
         }
     }
 
     pub fn with_id(id: usize) -> Self {
-        RelationalRecord {
+        Self {
             id: Some(id),
             fields: HashMap::new(),
         }
@@ -261,7 +263,7 @@ impl RelationalRecord {
             };
             fields.insert(name.clone(), value);
         }
-        Ok(RelationalRecord { id: None, fields })
+        Ok(Self { id: None, fields })
     }
 
     pub fn serialize(&self, schema: &RelationalSchema) -> Vec<u8> {
@@ -309,13 +311,13 @@ impl RelationalRecord {
 
 impl RelationalRecordPage {
     pub fn new() -> Self {
-        RelationalRecordPage {
+        Self {
             records: Vec::new(),
         }
     }
 
     pub fn with_records(records: Vec<RelationalRecord>) -> Self {
-        RelationalRecordPage { records }
+        Self { records }
     }
 
     pub fn add_record(&mut self, record: RelationalRecord) {
@@ -348,11 +350,232 @@ impl RelationalRecordPage {
 
             offset += get_byte_size(&schema);
         }
-        Ok(RelationalRecordPage { records })
+        Ok(Self { records })
     }
 }
 
 // theres no such thing as relational or document column
+
+// START OF COLUMNAR STUFF
+
+
+//TODO: feels repetitive, but then, there are some key differences
+// what if I instead chose to make different columnar tables from higher up? seems about the same
+// while that is nice, this still leaves room to be more efficient ( just by removing the row abstraction)
+
+//maybe there is some stuff I can abstract away?
+
+
+//TODO: no tests but fairly straightforward, need to think about higher level abstractions 
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ColumnarDocumentRecord {
+    //TODO : ensure that this holds for other record types (no pub id, or values)
+    id: Option<usize>, // is usize large enough?
+    value: DocumentValue,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ColumnarDocumentRecordPage{
+    pub records: Vec<ColumnarDocumentRecord>,
+}
+
+impl ColumnarDocumentRecord {
+    pub fn new() -> Self {
+        Self {
+            id: None,
+            value: DocumentValue::Null,
+        }
+    }
+
+    pub fn with_id(id: usize) -> Self {
+        Self {
+            id: Some(id),
+            value: DocumentValue::Null,
+        }
+    }
+
+    pub fn set_id(&mut self, id: usize) {
+        self.id = Some(id);
+    }
+
+    pub fn get_id(&self) -> Option<usize> {
+        self.id.clone() //TODO: is this bad?
+    }
+
+    pub fn set_value(&mut self, value: DocumentValue) {
+        self.value = value;
+    }
+
+    pub fn get_value(&self) -> &DocumentValue {
+        &self.value
+    }
+
+    pub fn serialize(&self) -> Result<Vec<u8>> {
+        match bson::to_vec(&self) {
+            Ok(res) => Ok(res),
+            Err(err) => return Err(Error::SerializationError),
+        }
+    }
+
+    pub fn deserialize(s: &Vec<u8>) -> Result<Self> {
+        match bson::from_slice(s) {
+            Ok(res) => return Ok(res),
+            Err(err) => return Err(Error::SerializationError),
+        }
+    }
+}
+
+
+impl ColumnarDocumentRecordPage {
+    pub fn new() -> Self {
+        Self {
+            records: Vec::new(),
+        }
+    }
+
+    pub fn with_records(records: Vec<ColumnarDocumentRecord>) -> Self {
+        Self { records }
+    }
+
+    pub fn add_record(&mut self, record: ColumnarDocumentRecord) {
+        self.records.push(record);
+    }
+
+    pub fn get_records(&self) -> &Vec<ColumnarDocumentRecord> {
+        &self.records
+    }
+
+    pub fn clear_records(&mut self) {
+        self.records.clear();
+    }
+
+    pub fn serialize(&self) -> Result<Vec<u8>> {
+        match bson::to_vec(&self) {
+            Ok(res) => Ok(res),
+            Err(_) => Err(Error::SerializationError),
+        }
+    }
+
+    pub fn deserialize(s: &Vec<u8>) -> Result<Self> {
+        match bson::from_slice(s) {
+            Ok(res) => return Ok(res),
+            Err(_err) => return Err(Error::SerializationError),
+        }
+    }
+}
+
+
+// COLUMNAR RELATIONAL RECORDS
+
+// all the schema here will consist of is a single value
+
+
+#[derive(Debug, Clone)]
+pub struct ColumnarRelationalRecordPage {
+    pub records: Vec<ColumnarRelationalRecord>, // metadata
+}
+
+#[derive(Debug, Clone)]
+pub struct ColumnarRelationalRecord {
+    id: Option<usize>, 
+    value: RelationalValue,
+}
+
+
+impl ColumnarRelationalRecord {
+    pub fn new() -> Self {
+        Self {
+            id: None,
+            value: RelationalValue::Null,  
+        }
+    }
+
+    pub fn with_id(id: usize) -> Self {
+        Self {
+            id: Some(id),
+            value: RelationalValue::Null,  
+        }
+    }
+
+    //TODO: this really shouldnt be a thing right? creating a new record should be done with an ID
+    pub fn set_id(&mut self, id: usize) {
+        self.id = Some(id);
+    }
+
+    pub fn get_id(&self) -> Option<usize> {
+        self.id.clone() 
+    }
+
+    pub fn set_value(&mut self, value: RelationalValue) {
+        self.value = value;
+    }
+
+    pub fn get_value(&self, key: &str) -> &RelationalValue {
+        &self.value
+    }
+
+
+    //TODO: finish this up on relationalrecord first, before I apply here
+
+    pub fn deserialize(bytes: &[u8], schema: &RelationalSchema) -> Result<Self> {
+        unimplemented!()
+    }
+
+    pub fn serialize(&self, schema: &RelationalSchema) -> Vec<u8> {
+        unimplemented!()
+    }
+}
+
+impl ColumnarRelationalRecordPage {
+    pub fn new() -> Self {
+        Self{
+            records: Vec::new(),
+        }
+    }
+
+    pub fn with_records(records: Vec<ColumnarRelationalRecord>) -> Self {
+        Self { records }
+    }
+
+    pub fn add_record(&mut self, record: ColumnarRelationalRecord) {
+        self.records.push(record);
+    }
+
+    pub fn get_records(&self) -> &Vec<ColumnarRelationalRecord> {
+        &self.records
+    }
+
+    pub fn clear_records(&mut self) {
+        self.records.clear();
+    }
+
+
+    // not implemeneted for now    
+    pub fn serialize(&self, schema: &RelationalSchema) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for record in &self.records {
+            bytes.extend_from_slice(&record.serialize(schema));
+        }
+        bytes
+        //ENFORCING THE SIZE OF THIS WILL BE DONE ELSEWHERE
+    }
+
+    pub fn deserialize(bytes: &Vec<u8>, schema: &RelationalSchema) -> Result<Self> {
+        let mut records = Vec::new();
+        let mut offset = 0;
+        while offset < bytes.len() {
+            let record = ColumnarRelationalRecord::deserialize(&bytes[offset..], schema)?;
+            records.push(record);
+
+            offset += get_byte_size(&schema);
+        }
+        Ok(Self { records })
+    }
+}
+
+
+
 
 #[cfg(test)]
 mod tests {
