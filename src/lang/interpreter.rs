@@ -42,32 +42,37 @@ pub struct IterClosure {
     get_next_chunk: Box<dyn Fn() -> Option<Records>>,
 }
 
-pub const F_ARGS: HashMap<MethodType, Vec<String>> = HashMap::from([
-    (MethodType::OrderBy,),
-    (MethodType::GroupBy,),
-    (MethodType::Filter,),
-    (MethodType::Select,),
-    (MethodType::SelectDistinct,),
-    (MethodType::Offset,),
-    (MethodType::Limit,),
-    (MethodType::Max,),
-    (MethodType::Min,),
-    (MethodType::Sum,),
-    (MethodType::Count,),
-    (MethodType::CountDistinct,),
-    (MethodType::Illegal,),
+
+// TODO: lets work backward from the predicate function?
+pub const F_ARGS: HashMap<MethodType, Vec<ValueType>> = HashMap::from([
+    (MethodType::OrderBy, vec![ValueType::String]), //we want some attr tho
+    (MethodType::GroupBy, vec![ValueType::String]),
+    (MethodType::Filter, vec![]), //we want some predicate function
+    (MethodType::Select, vec![]), //we need variadic type specs
+    (MethodType::SelectDistinct, vec![]), 
+    (MethodType::Offset, vec![ValueType::Number]),
+    (MethodType::Limit, vec![ValueType::Number]),
+
+    // need to move these elsewhere    
+    (MethodType::Max, vec![]),
+    (MethodType::Min, vec![]),
+    (MethodType::Sum, vec![]),
+    (MethodType::Count, vec![]),
+    (MethodType::CountDistinct, vec![]),
+
+    (MethodType::Illegal, vec![]),
 ]);
 
 // fn check_method(
 //     method_type: MethodType,
-//     args: &Vec<Expr>,
-//     prev_method: Option<MethodType>,
+//     args: &Vec<Literal>,
 // ) -> Result<()> {
 
 //     //handle method arguments
-//     if let Some(expected_args) = F_ARGS.get(method_type) {
+//     if let Some(expected_args) = F_ARGS.get(&method_type) {
 //         let mut curr: usize = 0;
 //         let mut internal_count:usize = 0;
+
 //         for (idx, arg) in args.iter().enumerate() {
 //             // walk through the arugments and f_args together
 //                 // check that curr value is still in range
@@ -377,17 +382,23 @@ impl ExprVisitor<Result<RecordIterator>, Result<Literal>> for Interpreter {
         // okay, so we evaulte the attr into some record iterator
         let mut left = self.evaluate(&Expr::Attribute(expr.attr.clone())).unwrap();
 
-        // this is where we apply the methods to the iterator
-        // method typechecking and application
+        // we need to map the args into lower exprs somehow
+        // and we havent figured out the MAX MIN args, whether they should be funcs or not
+        // maybe we just try lower then higher, or make a special kind of call for those?
+        // but they are just attrs after all
 
-        // so here, we handle the args
+        for (method, args) in expr.methods.iter().zip(&expr.arguments) {
 
-        // we have to evalute the args into some unpacked structure, alongside type information maybe?
-        // yeah, before we typecheck
+            // resolve into lowers
+            let mut resolved_args: Vec<Literal> = Vec::new();
+            for arg in args {
+                match self.evaluate_lower(arg) {
+                    Ok(x) => resolved_args.push(x),
+                    Err(e) => return Err(e)
+                }
+            }
 
-        // the static pass is important I guess, runtime errors are more time-costly than a single check
-
-        for (method, arg) in expr.methods.iter().zip(&expr.arguments) {
+            //so we need to think about constructing the iterclosure here
 
             // method checking here
         }
