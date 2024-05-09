@@ -328,7 +328,7 @@ impl ExprVisitor<Result<RecordIterator>, Result<Literal>> for Interpreter {
         // maybe when filter closures and the like are being figured out
         unimplemented!()
     }
-    fn visit_logical_expr(&mut self, expr: &Logical) -> Result<Value> {
+    fn visit_logical_expr(&mut self, expr: &Logical) -> Result<Literal> {
         // only booleans allowed
         let mut left = self.evaluate_lower(&expr.left)?;
         let mut right = self.evaluate_lower(&expr.right)?;
