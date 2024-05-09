@@ -211,16 +211,16 @@ impl Value {
     }
 }
 
-pub trait ExprVisitor<T> {
-    fn visit_binary(&mut self, expr: &Binary) -> T;
-    fn visit_grouping(&mut self, expr: &Grouping) -> T;
-    fn visit_literal(&mut self, expr: &Literal) -> T;
-    // fn visit_call_expr(&mut self, expr: &Call) -> T;
-    fn visit_unary(&mut self, expr: &Unary) -> T;
-    fn visit_variable(&mut self, expr: &Variable) -> T;
+pub trait ExprVisitor<T, U> {
+    fn visit_binary(&mut self, expr: &Binary) -> U;
+    fn visit_grouping(&mut self, expr: &Grouping) -> U;
+    fn visit_literal(&mut self, expr: &Literal) -> U;
+    fn visit_logical_expr(&mut self, expr: &Logical) -> U;
+    fn visit_unary(&mut self, expr: &Unary) -> U;
+
+    fn visit_variable(&mut self, expr: &Variable) -> T; //hmm
     fn visit_attribute(&mut self, expr: &Attribute) -> T;
-    fn visit_assign(&mut self, expr: &Assign) -> T;
-    fn visit_logical_expr(&mut self, expr: &Logical) -> T;
+    fn visit_assign(&mut self, expr: &Assign) -> T; // we dont need this
     fn visit_data_call(&mut self, expr: &DataCall) -> T;
     fn visit_data_expr(&mut self, expr: &DataExpr) -> T;
 }
@@ -250,23 +250,7 @@ pub enum Expr {
     Attribute(Attribute),
 }
 
-// impl Expr {
-//     pub fn accept<T>(&self, visitor: &mut dyn ExprVisitor<T>) -> T {
-//         match self {
-//             Expr::Binary(expr) => visitor.visit_binary(expr),
-//             Expr::Grouping(expr) => visitor.visit_grouping(expr),
-//             Expr::Literal(expr) => visitor.visit_literal(expr),
-//             Expr::Unary(expr) => visitor.visit_unary(expr),
-//             // Expr::Call(expr) => visitor.visit_call_expr(expr),
-//             Expr::Variable(expr) => visitor.visit_variable(expr),
-//             Expr::Attribute(expr) => visitor.visit_attribute(expr),
-//             Expr::Assign(expr) => visitor.visit_assign(expr),
-//             Expr::Logical(expr) => visitor.visit_logical_expr(expr),
-//             Expr::DataCall(expr) => visitor.visit_data_call(expr),
-//             Expr::DataExpr(expr) => visitor.visit_data_expr(expr),
-//         }
-//     }
-// }
+
 
 
 #[derive(Debug, Clone)]
