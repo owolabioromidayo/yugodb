@@ -42,6 +42,10 @@ use crate::record_iterator::*;
 
 
 
+
+//TODO: record iterator with a predicate is much easier to work over than the iterclosure
+// iterclosure should be for joins, as the final eval thing, record iterator should be for datacall
+
 // TODO: lets work backward from the predicate function?
 
 // fix this
@@ -65,6 +69,7 @@ static F_ARGS: HashMap<MethodType, Vec<ValueType>> = HashMap::from([
 
     (MethodType::Illegal, vec![]),
 ]);
+
 
 // fn check_method(
 //     method_type: MethodType,
@@ -422,13 +427,20 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>> for Interpreter {
         }
     }
     fn visit_data_call(&mut self, expr: &DataCall) -> Result<IterClosure> {
-        // okay, so we evaulte the attr into some record iterator
+
+
+        //left should be a RecordIterator
         let mut left = self.evaluate(&Expr::Attribute(expr.attr.clone())).unwrap();
+        let mut pred = RPredicate::new() ;
 
         // we need to map the args into lower exprs somehow
         // and we havent figured out the MAX MIN args, whether they should be funcs or not
         // maybe we just try lower then higher, or make a special kind of call for those?
         // but they are just attrs after all
+
+        let mut res = IterClosure {
+            get_next_chunk : Box::new(|pager, table| {Ok(None)})
+        };
 
         for (method, args) in expr.methods.iter().zip(&expr.arguments) {
 
@@ -439,11 +451,45 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>> for Interpreter {
                     Ok(x) => resolved_args.push(x),
                     Err(e) => return Err(e)
                 }
+
+                // we are going to iteratively roll up our iterclosures based on the predicates being applied.
+                // optimization cannot take place at this IR then
+
+                // no, we accumulate the predicates and have only one record iterator at the end
+
             }
 
-            //so we need to think about constructing the iterclosure here
+            // still need to do the typechecking here
 
-            // method checking here
+            match method {
+                MethodType::Limit => {
+                    if resolved_args.len() != 1 {
+                        return Err(Error::TypeError("Limit method requires 1 integer input ONLY.".to_string()));
+                    }
+                    match &resolved_args[0].value.value {
+                        ValueData::Number(x) => { 
+                            pred.offset = Some(*x as usize);
+                        },
+                        _ => return Err(Error::TypeError("Limit method requires 1 INTEGER input only.".to_string()))
+                    }
+                    
+                },
+                MethodType::Offset => {
+                    if resolved_args.len() != 1 {
+                        return Err(Error::TypeError("Offset method requires 1 integer input ONLY.".to_string()));
+                    }
+                    match &resolved_args[0].value.value {
+                        ValueData::Number(x) => { 
+                            pred.limit= Some(*x as usize);
+                        },
+                        _ => return Err(Error::TypeError("Offset method requires 1 INTEGER input only.".to_string()))
+                    }
+                    
+                },
+                _ => unimplemented!()
+            }
+
+
         }
 
         // remember , besides that, that we have to generate some iter function

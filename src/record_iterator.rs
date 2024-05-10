@@ -11,15 +11,26 @@ use crate::types::*;
 
 #[derive(Clone)]
 pub struct RPredicate {
-    pub offset: usize,
-    pub limit: usize,
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
 
     //maybe we dont put this here again
     // pub filter: Fn, // handle using lambdas I guess, conversion would be finnicky though
-    pub select: Vec<String>, // selected columns
+    pub select: Option<Vec<String>>, // selected columns
 
                              // TODO: cant really handle order here, that should be in projection. Another optimization
 }
+
+impl RPredicate {
+    pub fn new() -> Self {
+        Self {
+            offset: None,
+            limit: None,
+            select: None,
+        }
+    }
+}
+
 
 #[derive(Clone)]
 pub struct RecordIterator {
