@@ -211,7 +211,7 @@ impl Value {
     }
 }
 
-pub trait ExprVisitor<T, U> {
+pub trait ExprVisitor<T: ?Sized, U> {
     fn visit_binary(&mut self, expr: &Binary) -> U;
     fn visit_grouping(&mut self, expr: &Grouping) -> U;
     fn visit_literal(&mut self, expr: &Literal) -> U;

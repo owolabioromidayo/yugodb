@@ -5,6 +5,8 @@ use crate::error::*;
 use crate::lang::ast::*;
 use crate::lang::types::*;
 use crate::record::*;
+use crate::table::*;
+use crate::pager::*;
 use crate::record_iterator::*;
 
 //maybe we call this a resolver / unroller kind of thing?
@@ -38,13 +40,14 @@ use crate::record_iterator::*;
 // so then, we are returning custom record iterators
 // think about this
 
-pub struct IterClosure {
-    get_next_chunk: Box<dyn Fn() -> Option<Records>>,
-}
 
 
 // TODO: lets work backward from the predicate function?
-pub const F_ARGS: HashMap<MethodType, Vec<ValueType>> = HashMap::from([
+
+// fix this
+
+//variadic types by using vecs, maybe groupings?
+static F_ARGS: HashMap<MethodType, Vec<ValueType>> = HashMap::from([
     (MethodType::OrderBy, vec![ValueType::String]), //we want some attr tho
     (MethodType::GroupBy, vec![ValueType::String]),
     (MethodType::Filter, vec![]), //we want some predicate function
@@ -128,6 +131,48 @@ pub const F_ARGS: HashMap<MethodType, Vec<ValueType>> = HashMap::from([
 //     }
 // }
 
+//rename this func
+pub fn get_assign_vars(expr: &Expr) -> Result<Vec<String>> {
+    match &expr {
+        Expr::Assign(e) => {
+            
+
+        // think about it, this left token is not unwrapped into variable or attr, could be either
+        let mut res = vec![e.name.literal.unwrap()]; // this is fine, right
+
+        match &*(e.value) {
+            Expr::Attribute(y) => {
+                unimplemented!();  // i think that question is meant to go here actually
+            },
+            Expr::Variable(y) => {
+                // unimplemented!();  // do we want this?
+                res.push(y.name.literal.unwrap())
+            },
+            _ => return Err(Error::TypeError(
+                "Expr type not supported as rval in a predicate expr".to_string(),
+            ))
+            }
+            
+        Ok(res)
+        },
+        _ => Err(Error::TypeError(
+            "Expr type not supported as a predicate expr".to_string(),
+        )),
+    }
+}
+
+pub struct IterClosure {
+    pub get_next_chunk: Box<dyn Fn(&mut Pager, &mut Table) -> Result<Option<Records>>>,
+}
+
+
+// maybe we are going to far with this?
+// it should just be some simple assignment expr like a = b
+pub struct PredicateClosure{
+    // what happens if its only one record, we create another func, this seems brittle
+    eval: Box<dyn Fn(&Record, &Record) -> bool>,
+}
+
 struct Interpreter {
     //some variables I guess
     // we need a better local state here
@@ -137,45 +182,7 @@ struct Interpreter {
 // some hard rules need to be set in place
 // i.e. no binary or unary expressions allowed for record iterators, they should only need joins and aggregate ops
 
-impl ExprVisitor<Result<RecordIterator>, Result<Literal>> for Interpreter {
-    //TOOD: these are key to building up everything else
-    // funnily, doesnt come from this, but in a roundabout way comes from the datacall and dataexpr
-    // learny your own grammar
-
-    // we should also clone here, better to have some static copy
-    fn visit_variable(&mut self, expr: &Variable) -> Result<RecordIterator> {
-        // in this situation, we just return the evaluation of the variable.
-        // if it is the first time being defined we store, otherwise, we return from the map
-
-        //TODO: a variable should be guaranteed some literal ; its just unwrap for now
-        match self.variables.get((&expr.name.literal.clone().unwrap())) {
-            Some(y) => Ok(y.clone()),
-            None => Err(Error::NotFound(format!(
-                "Variable {:?} does not exist",
-                expr
-            ))),
-        }
-    }
-
-    // an atrribute could just be some recorditerator with a set of predicates applied to it!
-    fn visit_attribute(&mut self, expr: &Attribute) -> Result<RecordIterator> {
-        //an attribute is a select statement applied to a variable
-
-        let left = &expr.tokens[0].literal.clone().unwrap();
-        if self.variables.contains_key(left) {
-            // this only works for things like x.id
-            let mut var = self.visit_variable_token(&expr.tokens[0]).unwrap();
-            for t in &expr.tokens[1..] {
-                var.predicate.select.push(t.literal.clone().unwrap());
-            }
-
-            return Ok(var);
-        } else {
-            // TODO: what about DB.table.X or some shit
-            // have to deal with this here
-            unimplemented!()
-        }
-    }
+impl ExprVisitor<Result<IterClosure>, Result<Literal>> for Interpreter {
 
     fn visit_binary(&mut self, expr: &Binary) -> Result<Literal> {
         let mut left = self.evaluate_lower(&expr.left)?;
@@ -293,7 +300,7 @@ impl ExprVisitor<Result<RecordIterator>, Result<Literal>> for Interpreter {
         return Ok(expr.clone());
     }
     fn visit_unary(&mut self, expr: &Unary) -> Result<Literal> {
-        match **&expr.right {
+        match &*(expr.right) {
             Expr::Literal(x) => match &expr.operator._type {
                 TokenType::Plus => Ok(x.clone()),
                 TokenType::Minus => match &x.value.value_type {
@@ -309,7 +316,7 @@ impl ExprVisitor<Result<RecordIterator>, Result<Literal>> for Interpreter {
                         "Unsupported literal value type!".to_string(),
                     )),
                 },
-                TokenType::Not => match &x.value.value_type {
+                TokenType::Bang => match &x.value.value_type {
                     ValueType::Boolean => {
                         let mut m = x.clone();
 
@@ -328,11 +335,6 @@ impl ExprVisitor<Result<RecordIterator>, Result<Literal>> for Interpreter {
         }
     }
 
-    fn visit_assign(&mut self, expr: &Assign) -> Result<RecordIterator> {
-        // this is not bound to happen as variable assignments have been taken care of
-        // maybe when filter closures and the like are being figured out
-        unimplemented!()
-    }
     fn visit_logical_expr(&mut self, expr: &Logical) -> Result<Literal> {
         // only booleans allowed
         let mut left = self.evaluate_lower(&expr.left)?;
@@ -378,7 +380,48 @@ impl ExprVisitor<Result<RecordIterator>, Result<Literal>> for Interpreter {
             ))),
         }
     }
-    fn visit_data_call(&mut self, expr: &DataCall) -> Result<RecordIterator> {
+
+    fn visit_assign(&mut self, expr: &Assign) -> Result<IterClosure> {
+        // this is not bound to happen as variable assignments have been taken care of
+        // maybe when filter closures and the like are being figured out
+        unimplemented!()
+    }
+
+    // we should also clone here, better to have some static copy
+    fn visit_variable(&mut self, expr: &Variable) -> Result<IterClosure> {
+        // in this situation, we just return the evaluation of the variable.
+        // if it is the first time being defined we store, otherwise, we return from the map
+
+        //TODO: a variable should be guaranteed some literal ; its just unwrap for now
+        match self.variables.get((&expr.name.literal.clone().unwrap())) {
+            Some(y) => Ok(y.clone()),
+            None => Err(Error::NotFound(format!(
+                "Variable {:?} does not exist",
+                expr
+            ))),
+        }
+    }
+
+    // an atrribute could just be some recorditerator with a set of predicates applied to it!
+    fn visit_attribute(&mut self, expr: &Attribute) -> Result<IterClosure> {
+        //an attribute is a select statement applied to a variable
+
+        let left = &expr.tokens[0].literal.clone().unwrap();
+        if self.variables.contains_key(left) {
+            // this only works for things like x.id
+            let mut var = self.visit_variable_token(&expr.tokens[0]).unwrap();
+            for t in &expr.tokens[1..] {
+                var.predicate.select.push(t.literal.clone().unwrap());
+            }
+
+            return Ok(var);
+        } else {
+            // TODO: what about DB.table.X or some shit
+            // have to deal with this here
+            unimplemented!()
+        }
+    }
+    fn visit_data_call(&mut self, expr: &DataCall) -> Result<IterClosure> {
         // okay, so we evaulte the attr into some record iterator
         let mut left = self.evaluate(&Expr::Attribute(expr.attr.clone())).unwrap();
 
@@ -410,9 +453,25 @@ impl ExprVisitor<Result<RecordIterator>, Result<Literal>> for Interpreter {
         return Ok(left);
     }
 
-    fn visit_data_expr(&mut self, expr: &DataExpr) -> Result<RecordIterator> {
-        let left = self.evaluate(&expr.left);
-        let right = self.evaluate(&expr.right);
+    fn visit_data_expr(&mut self, expr: &DataExpr) -> Result<IterClosure> {
+        let left = self.evaluate(&expr.left)?;
+        let right = self.evaluate(&expr.right)?;
+
+        // I think this layer of abstraction is fine so far
+
+        // let join_expr = self.evaluate_predicate(&expr.join_expr);
+
+        // lets just do this shit here
+        let join_vals = get_assign_vars(&expr.join_expr)?;
+
+
+        //so how do we resolve join exprs?
+        // we just do it here?
+        // it should just be an attr / string value right
+        // its actually an assignment expr, fk
+
+        // its a boolean expression, so we need somre predicate evaluator kinda shit
+
 
         match &expr.join._type {
             TokenType::Ljoin => {
@@ -424,23 +483,92 @@ impl ExprVisitor<Result<RecordIterator>, Result<Literal>> for Interpreter {
                 // need to extend database tables to support that though
                 //TODO: easiest way is to specify the left and right join keys
                 // left join, we basically iter and zip where we can (based on id)
-                unimplemented!()
-            }
+
+                // also, we need the join predicate
+
+                let res = IterClosure {
+                    get_next_chunk : Box::new( move |pager, table | {
+
+                        // we are going to have to figure out the table part
+                        // very temp
+                        let l_chunk = (left.get_next_chunk)(pager, table)?;
+                        let r_chunk = (right.get_next_chunk)(pager, table)?;
+
+                        //check the nulls
+                        if r_chunk.is_none() {
+                            return Ok(l_chunk)
+                        }
+                        if l_chunk.is_none() {
+                            return Ok(None)
+                        }
+
+
+                        for (l, r) in l_chunk.iter().zip(r_chunk.iter()) {
+                            match (l, r) {
+                                (Records::DocumentRows(x), Records::DocumentRows(y)) => {
+                                    for (a,b) in x.iter().zip(y) {
+                                        if (a.get_field(&join_vals[0]) == b.get_field(&join_vals[1]) ) && a.fields.get(&join_vals[0]).is_some() {
+                                            // zip these two then
+                                            a.fields.extend(b.fields.clone());
+                                        }
+                                        // otherwise, we do nothing. no null fields here, need schema for that
+                                    }
+
+                                    return Ok(Some(Records::DocumentRows(*x)));
+
+                                },
+                                (Records::DocumentRows(x), Records::RelationalRows(y)) => {
+                                    for (a,b) in x.iter().zip(y) {
+                                        if (a.get_field_as_relational(&join_vals[0]).as_ref() == b.get_field(&join_vals[1]) ) && a.get_field(&join_vals[0]).is_some() {
+                                            // zip these two then
+                                            for (k,v) in b.fields.iter() {
+                                                a.fields[k] = v.to_document_value();
+                                            }
+
+                                        }
+                                        // otherwise, we do nothing. no null fields here, need schema for that
+                                    }
+
+                                    return Ok(Some(Records::DocumentRows(*x)));
+
+                                },
+                                (Records::RelationalRows(x), Records::DocumentRows(y)) => {
+
+                                    // this is the weaker form, should we neglect it?
+                                    unimplemented!()
+                                },
+                                (Records::RelationalRows(x), Records::RelationalRows(y)) => {
+
+                                    // same shit, but construct a new schema?
+                                    // or do we just bring it into document form, that would be chill?
+                                    // nah    
+                                    unimplemented!()
+                                },
+                                _ => return Err(Error::TypeError(format!("Cannot join {:?} on {:?} yet!", &l, &r)))
+                            }
+                        } 
+                        return Ok(None); 
+
+                    }),
+                }
+                Ok(res) 
+
+            },
             TokenType::Join => {
                 // left join, we basically iter and zip where we can (based on id), but we discard non matches
                 unimplemented!()
-            }
+            },
             _ => unimplemented!(),
         }
     }
 }
 
-impl StmtVisitor<Result<RecordIterator>> for Interpreter {
+impl StmtVisitor<Result<IterClosure>> for Interpreter {
     fn visit_print_stmt(&mut self, stmt: &PrintStmt) -> () {
         // println!("Print stmt called!");
         unimplemented!();
     }
-    fn visit_expr_stmt(&mut self, stmt: &ExprStmt) -> Result<RecordIterator> {
+    fn visit_expr_stmt(&mut self, stmt: &ExprStmt) -> Result<IterClosure> {
         // so, what the hell would we do here?
         match &stmt.expression {
             Expr::DataExpr(expr) => self.visit_data_expr(&expr),
@@ -470,7 +598,7 @@ impl Interpreter {
         }
     }
 
-    pub fn evaluate(&mut self, expr: &Expr) -> Result<RecordIterator> {
+    pub fn evaluate(&mut self, expr: &Expr) -> Result<IterClosure> {
         let res = match &expr {
             Expr::Variable(expr) => self.visit_variable(expr),
             Expr::Attribute(expr) => self.visit_attribute(expr),
@@ -484,6 +612,12 @@ impl Interpreter {
 
         res
     }
+
+    // pub fn evaluate_predicate(&mut self, expr: &Expr) -> Result<PredicateClosure> {
+
+    // }
+
+
 
     pub fn evaluate_lower(&mut self, expr: &Expr) -> Result<Literal> {
         let res = match &expr {

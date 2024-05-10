@@ -36,6 +36,7 @@ pub enum DocumentValue {
     Null,
     Boolean(bool),
     Number(f64),
+    Numeric(Decimal),
     String(String),
     Array(Vec<DocumentValue>),
     Object(HashMap<String, DocumentValue>),
@@ -73,9 +74,31 @@ impl DocumentRecord {
         self.fields.insert(key, value);
     }
 
-    pub fn get_field(&self, key: &str) -> Option<&DocumentValue> {
-        self.fields.get(key)
+    pub fn get_field(&mut self, key: &str) {
+        self.fields.get(key);
     }
+
+
+    pub fn get_field_as_relational(&self, key: &str) -> Option<RelationalValue> {
+        if let a = self.fields.get(key).unwrap() {
+
+            //TODO: is this all we really want?
+            return match a {
+                DocumentValue::Null =>  Some(RelationalValue::Null),
+                DocumentValue::Boolean(x) => Some(RelationalValue::Boolean(x.clone())),
+                DocumentValue::Number(x ) => Some(RelationalValue::Number(x.clone())),
+                DocumentValue::Numeric(x ) => Some(RelationalValue::Numeric(x.clone())),
+                DocumentValue::String(x) => Some(RelationalValue::String(x.clone())),
+                DocumentValue::Array(x ) => None,
+                DocumentValue::Object(x) => None,
+            }
+
+        }
+
+        None
+
+    }
+
 
     pub fn remove_field(&mut self, key: &str) {
         self.fields.remove(key);
@@ -105,6 +128,7 @@ impl DocumentRecord {
         //     Err(err) => return Err(Error::SerdeError)
     }
 }
+
 
 impl DocumentRecordPage {
     pub fn new() -> Self {
@@ -166,6 +190,19 @@ pub enum RelationalValue {
     Numeric(Decimal),
     String(String),
 }
+
+impl RelationalValue {
+    pub fn to_document_value(&self) -> DocumentValue {
+        match &self {
+            RelationalValue::Null => DocumentValue::Null,
+            RelationalValue::Boolean(x) => DocumentValue::Boolean(x.clone()),
+            RelationalValue::Number(x) => DocumentValue::Number(x.clone()),
+            RelationalValue::Numeric(x) => DocumentValue::Numeric(x.clone()),
+            RelationalValue::String(x) => DocumentValue::String(x.clone()),
+         }
+    }
+}
+
 
 impl RelationalType {
     // in bytes
