@@ -24,22 +24,22 @@ pub enum StorageModel {
 }
 
 pub struct Table {
-    name: String,
-    schema: Schema,
-    _type: TableType,
-    storage_method: StorageModel,
+    pub name: String,
+    pub schema: Schema,
+    pub _type: TableType,
+    pub storage_method: StorageModel,
     //pager -> it shouldnt have one, will be passed down to it
     //how do we want to store the page indexes
     // we just need the most recent
-    curr_page_id: usize,
-    curr_row_id: usize, // db row count basically
-    page_index: HashMap<usize, usize>, //table page index -> filename, file_page_index
+    pub curr_page_id: usize,
+    pub curr_row_id: usize, // db row count basically
+    pub page_index: HashMap<usize, usize>, //table page index -> filename, file_page_index
 
-    default_index: BPTreeInternalNode<usize, (usize, u8, u8)>, // page, offset and len
+    pub default_index: BPTreeInternalNode<usize, (usize, u8, u8)>, // page, offset and len
     // TODO : setting the index type here defeats all generic programming
     // fuck, have to use an enum of diff configurations I guess
     // guess making another trait would use more code, fk 
-    indexes: HashMap<String, Option<BPTreeInternalNode< usize, (usize, u8, u8)>>>, // need more than one for column dbs
+    pub indexes: HashMap<String, Option<BPTreeInternalNode< usize, (usize, u8, u8)>>>, // need more than one for column dbs
 }
 
 // i dont think anything crazy needs to happen here, the predicates will be handled in the executor
@@ -116,7 +116,7 @@ impl Table {
         return count;
     }
 
-    pub fn insert_document_row(&mut self, pager: &mut Pager, row: DocumentRecord) -> Result<bool> {
+    pub fn insert_document_row(&mut self, pager: &mut Pager, row: DocumentRecord) -> Result<()> {
         let mut curr_page = pager.get_page_forced(self.curr_page_id)?;
         let mut document_page = match DocumentRecordPage::deserialize(&curr_page.bytes) {
             Ok(page) => page,
@@ -148,7 +148,7 @@ impl Table {
             pager.flush_page(&curr_page)?;
             // self.curr_page_id
         }
-        Ok(true)
+        Ok(())
     }
 
     pub fn insert_document_rows(pager: &Pager, rows: Vec<DocumentRecord>) {

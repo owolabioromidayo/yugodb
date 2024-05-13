@@ -211,7 +211,7 @@ impl Value {
     }
 }
 
-pub trait ExprVisitor<T: ?Sized, U> {
+pub trait ExprVisitor<T: ?Sized, U, V> {
     fn visit_binary(&mut self, expr: &Binary) -> U;
     fn visit_grouping(&mut self, expr: &Grouping) -> U;
     fn visit_literal(&mut self, expr: &Literal) -> U;
@@ -221,7 +221,7 @@ pub trait ExprVisitor<T: ?Sized, U> {
     fn visit_variable(&mut self, expr: &Variable) -> T; //hmm
     fn visit_attribute(&mut self, expr: &Attribute) -> T;
     fn visit_assign(&mut self, expr: &Assign) -> T; // we dont need this
-    fn visit_data_call(&mut self, expr: &DataCall) -> T;
+    fn visit_data_call(&mut self, expr: &DataCall) -> V;
     fn visit_data_expr(&mut self, expr: &DataExpr) -> T;
 }
 

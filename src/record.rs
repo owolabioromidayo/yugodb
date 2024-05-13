@@ -74,8 +74,8 @@ impl DocumentRecord {
         self.fields.insert(key, value);
     }
 
-    pub fn get_field(&mut self, key: &str) {
-        self.fields.get(key);
+    pub fn get_field(&self, key: &str) -> Option<&DocumentValue> {
+        return self.fields.get(key);
     }
 
 
@@ -252,7 +252,7 @@ impl RelationalRecord {
     }
 
     pub fn get_field(&self, key: &str) -> Option<&RelationalValue> {
-        self.fields.get(key)
+        return self.fields.get(key)
     }
 
     pub fn remove_field(&mut self, key: &str) {

@@ -187,7 +187,7 @@ struct Interpreter {
 // some hard rules need to be set in place
 // i.e. no binary or unary expressions allowed for record iterators, they should only need joins and aggregate ops
 
-impl ExprVisitor<Result<IterClosure>, Result<Literal>> for Interpreter {
+impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator> > for Interpreter {
 
     fn visit_binary(&mut self, expr: &Binary) -> Result<Literal> {
         let mut left = self.evaluate_lower(&expr.left)?;
@@ -416,7 +416,15 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>> for Interpreter {
             // this only works for things like x.id
             let mut var = self.visit_variable_token(&expr.tokens[0]).unwrap();
             for t in &expr.tokens[1..] {
-                var.predicate.select.push(t.literal.clone().unwrap());
+                match &var.predicate.select {
+                    Some(x) => {
+                        x.push(t.literal.clone().unwrap());
+                    ()} ,
+                    None => { 
+                      var.predicate.select =  Some(vec![t.literal.clone().unwrap()]);
+                      ()
+                    },
+                }
             }
 
             return Ok(var);
@@ -426,10 +434,14 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>> for Interpreter {
             unimplemented!()
         }
     }
-    fn visit_data_call(&mut self, expr: &DataCall) -> Result<IterClosure> {
+    fn visit_data_call(&mut self, expr: &DataCall) -> Result<RecordIterator> {
 
 
         //left should be a RecordIterator
+        // we need to be able to take this left val, and get a table somehow
+        // maybe the database maintains a hashmap? then we just have to resolve whatever var is here
+        // into its full attr, then
+        // what do you know, we already thought of this eh
         let mut left = self.evaluate(&Expr::Attribute(expr.attr.clone())).unwrap();
         let mut pred = RPredicate::new() ;
 
@@ -500,8 +512,10 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>> for Interpreter {
     }
 
     fn visit_data_expr(&mut self, expr: &DataExpr) -> Result<IterClosure> {
-        let left = self.evaluate(&expr.left)?;
-        let right = self.evaluate(&expr.right)?;
+
+        //NOTE: this restriction means only datacals will be evaled here, im fine with that
+        let left = self.evaluate_call(&expr.left)?;
+        let right = self.evaluate_call(&expr.right)?;
 
         // I think this layer of abstraction is fine so far
 
@@ -649,7 +663,7 @@ impl Interpreter {
             Expr::Variable(expr) => self.visit_variable(expr),
             Expr::Attribute(expr) => self.visit_attribute(expr),
             Expr::Assign(expr) => self.visit_assign(expr),
-            Expr::DataCall(expr) => self.visit_data_call(expr),
+            // Expr::DataCall(expr) => self.visit_data_call(expr),
             Expr::DataExpr(expr) => self.visit_data_expr(expr),
             _ => Err(Error::TypeError(
                 "Expr type not supported in eval higher func".to_string(),
@@ -663,7 +677,16 @@ impl Interpreter {
 
     // }
 
+    pub fn evaluate_call(&mut self, expr: &Expr) -> Result<RecordIterator> {
+        let res = match &expr {
+            Expr::DataCall(expr) => self.visit_data_call(expr),
+            _ => Err(Error::TypeError(
+                "Expr type not supported in eval lower func".to_string(),
+            )),
+        };
 
+        res
+    }
 
     pub fn evaluate_lower(&mut self, expr: &Expr) -> Result<Literal> {
         let res = match &expr {

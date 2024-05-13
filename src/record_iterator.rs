@@ -17,6 +17,11 @@ pub struct RPredicate {
     //maybe we dont put this here again
     // pub filter: Fn, // handle using lambdas I guess, conversion would be finnicky though
     pub select: Option<Vec<String>>, // selected columns
+    pub distinct: Option<bool>,
+
+    // filter predicate?
+    //vec<columns strings>  -> some fn that takes exactly those values (maybe in vec form too)
+    
 
                              // TODO: cant really handle order here, that should be in projection. Another optimization
 }
@@ -27,6 +32,7 @@ impl RPredicate {
             offset: None,
             limit: None,
             select: None,
+            distinct: None,
         }
     }
 }
@@ -58,7 +64,10 @@ impl RecordIterator {
             progress: 0 as usize,
         };
 
-        n.progress = n.predicate.offset; // initialize to start idx
+        match n.predicate.offset {
+            Some(x) => n.progress = x ,
+            None => n.progress = 0,
+        }
         n
     }
 
@@ -67,7 +76,9 @@ impl RecordIterator {
     // we might have to make those size constraints large to cater for the efficiency of columnar page storage
     pub fn get_next_chunk(&mut self, pager: &mut Pager, table: &mut Table) -> Option<Records> {
         //lets fetch by page number based on the offset in the index, and we need to keep track
-        if (self.progress >= self.predicate.offset + self.predicate.limit) {
+        
+        //URGENT TODO: these should not be 0 here right, need to rethink RPRed defaults
+        if (self.progress >= self.predicate.offset.unwrap() + self.predicate.limit.unwrap()) {
             return None;
         }
 
