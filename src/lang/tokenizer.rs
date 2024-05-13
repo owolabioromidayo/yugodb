@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 
-use crate::lang::types::*; 
+use crate::lang::types::*;
 
-
-use crate::error::{Result, Error};
-
+use crate::error::{Error, Result};
 
 pub struct Tokenizer<'a> {
     source: &'a str,
@@ -25,16 +23,16 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    pub fn scan_tokens(&mut self) -> Result<Vec<Token>>  {
+    pub fn scan_tokens(&mut self) -> Result<Vec<Token>> {
         while !self.is_at_end() {
             self.start = self.current;
             match self.scan_token() {
                 Ok(()) => (),
-                Err(err) => return Err(err)
+                Err(err) => return Err(err),
             }
         }
 
-        self.add_token(TokenType::Eof, None); 
+        self.add_token(TokenType::Eof, None);
         Ok(self.tokens.clone())
     }
 
@@ -103,7 +101,7 @@ impl<'a> Tokenizer<'a> {
                     self.identifier();
                 } else {
                     // Handle unexpected characters
-                    return Err(Error::ScanError)
+                    return Err(Error::ScanError);
                 }
             }
         }
@@ -118,43 +116,53 @@ impl<'a> Tokenizer<'a> {
         let text = self.source[self.start..self.current].chars().collect();
 
         //for some reason I cannot make this global
-        let  keywords : HashMap<&str, TokenType> = HashMap::from([
+        let keywords: HashMap<&str, TokenType> = HashMap::from([
             // ("CAST" , TokenType::Cast ),
             // ("COLLATE" , TokenType::Collate ),
-            ("CREATE" , TokenType::Create ),
-            ("DELETE" , TokenType::Delete ),
+            ("CREATE", TokenType::Create),
+            ("DELETE", TokenType::Delete),
             ("let", TokenType::Let),
             ("LJOIN", TokenType::Ljoin),
             ("JOIN", TokenType::Join),
             ("ON", TokenType::On),
-
             // ("FROM" , TokenType::From ),
             // ("INDEX" , TokenType::Index ),
             // ("INSERT" , TokenType::Insert ),
             // ("INTO" , TokenType::Into ),
             // ("KEY" , TokenType::Key ),
-            ("NULL" , TokenType::Null ),
+            ("NULL", TokenType::Null),
             // ("ON" , TokenType::On ),
             // ("PRIMARY" , TokenType::Primary ),
-            ("SELECT" , TokenType::Select ),
-            ("TABLE" , TokenType::Table ),
-            ("true" , TokenType::True),
-            ("false" , TokenType::False),
-            ("||" , TokenType::Or ),
-            ("&&" , TokenType::And ),
+            ("SELECT", TokenType::Select),
+            ("TABLE", TokenType::Table),
+            ("true", TokenType::True),
+            ("false", TokenType::False),
+            ("||", TokenType::Or),
+            ("&&", TokenType::And),
             ("let", TokenType::Let),
             // ("VALUES" , TokenType::Values ),
             // ("WHERE" , TokenType::Where ),
         ]);
 
-        let methods = vec!["orderby", "groupby", "filter", "select", "select_distinct",
-                "offset", "limit", "max", "min", "sum", "count", "count_distinct"]; 
+        let methods = vec![
+            "orderby",
+            "groupby",
+            "filter",
+            "select",
+            "select_distinct",
+            "offset",
+            "limit",
+            "max",
+            "min",
+            "sum",
+            "count",
+            "count_distinct",
+        ];
 
         let token = keywords.get(&text as &str);
-        
-        if &text == "true" || &text == "false" {
-            self.add_token(TokenType::Boolean, Some(text)); 
 
+        if &text == "true" || &text == "false" {
+            self.add_token(TokenType::Boolean, Some(text));
         }
         // else if text.contains('.') {
         //     //is attribute
@@ -164,7 +172,7 @@ impl<'a> Tokenizer<'a> {
         //         let first_part = parts.last().unwrap_or(&"");
         //         let second_part = parts.first().unwrap_or(&"");
 
-        //         self.add_token(TokenType::Attribute, Some(first_part.to_string())); 
+        //         self.add_token(TokenType::Attribute, Some(first_part.to_string()));
 
         //         //we need to ensure method validity
         //         if methods.contains(second_part){
@@ -174,30 +182,27 @@ impl<'a> Tokenizer<'a> {
         //             self.add_token(TokenType::Illegal, Some(second_part.to_string()));
         //         }
 
-
-
-            // } else {
-            //     self.add_token(TokenType::Attribute, Some(text))
-            // }
+        // } else {
+        //     self.add_token(TokenType::Attribute, Some(text))
+        // }
         // }
         else if let Some(x) = token {
             // Special identifier
-            self.add_token(x.clone(), Some(text)); 
-
-        } else  if text.chars().all(char::is_alphabetic) {
+            self.add_token(x.clone(), Some(text));
+        } else if text
+            .chars()
+            //checking numeric here is fine because we checked that the first char was alpha earlier
+            .all(|x| x.is_alphabetic() || x == '_' || x.is_numeric())
+        {
             // check if valid var expression
-            // yeah so theeres no way a variable could be potentially a method then, since no . , no 
+            // yeah so theeres no way a variable could be potentially a method then, since no . , no
             // funny business
             self.add_token(TokenType::Variable, Some(text))
         } else {
-                // probably illegal right
-                self.add_token(TokenType::Illegal, Some(text))
-            }
-                
-
-    }   
-
-        
+            // probably illegal right
+            self.add_token(TokenType::Illegal, Some(text))
+        }
+    }
 
     fn number(&mut self) {
         while is_digit(self.peek()) {
@@ -232,7 +237,9 @@ impl<'a> Tokenizer<'a> {
         // Closing quote
         self.advance();
 
-        let text: String = self.source[self.start + 1..self.current - 1].chars().collect();
+        let text: String = self.source[self.start + 1..self.current - 1]
+            .chars()
+            .collect();
         self.add_token(TokenType::String, Some(text));
     }
 
@@ -273,7 +280,8 @@ impl<'a> Tokenizer<'a> {
 
     fn add_token(&mut self, token_type: TokenType, literal: Option<String>) {
         let text: String = self.source[self.start..self.current].chars().collect();
-        self.tokens.push(Token::new(token_type.clone(), text, literal, self.line));
+        self.tokens
+            .push(Token::new(token_type.clone(), text, literal, self.line));
     }
 }
 
@@ -296,12 +304,14 @@ mod tests {
     //need to tests this a lot, will come back
 
     #[test]
-    fn test_some_string(){
-        let mut tokenizer = Tokenizer::new("
+    fn test_some_string() {
+        let mut tokenizer = Tokenizer::new(
+            "
         let x = db.TABLES.b.filter(); 
         let y = db.TABLES.x ; 
         let z = x JOIN y on x.id=y.id;  x.select(a,b,c,d);
-        ");
+        ",
+        );
         let tokens = tokenizer.scan_tokens().unwrap();
         println!("Tokens: {:?}", tokens);
         ()

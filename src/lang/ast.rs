@@ -107,12 +107,20 @@ impl AST  {
     fn generate_from_expr(&self, expr: &Expr) -> Option<Node> {
         match expr {
             Expr::Attribute(attr) => {
-
-                match self.lookup_table.get(&attr.tokens[0].lexeme.to_string()) {
-                    // need somewhere to store those extra transformations. 
-                    Some(x) => Some(x.clone()),
-                    None => None 
-                }
+            
+                //TODO: no support for let x = a.b.c ; let y  = x.offset() yet
+                
+                Some(Node {
+                    _type: NodeType::Source,
+                    data: NodeData::Source(Source{source: Expr::Attribute(attr.clone())}),
+                    children: Vec::new(),
+                })
+                // this shouldnt even be here
+                // match self.lookup_table.get(&attr.tokens[0].lexeme.to_string()) {
+                //     // need somewhere to store those extra transformations. 
+                //     Some(x) => Some(x.clone()),
+                //     None => None 
+                // }
             }
             Expr::Variable(expr) => {
                 match self.lookup_table.get(&expr.name.lexeme.to_string()) {

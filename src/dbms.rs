@@ -2,19 +2,19 @@
 
 use std::collections::HashMap;
 
-use crate::pager::Pager;
-use crate::table::*;
-use crate::record::*;
-use crate::database::*;
-use crate::schema::*;
 use crate::btree::*;
-use crate::lang::types::*; 
-use crate::lang::ast::*; 
-use crate::lang::tokenizer::*; 
-use crate::lang::parser::*; 
+use crate::database::*;
 use crate::error::*;
+use crate::lang::ast::*;
+use crate::lang::parser::*;
+use crate::lang::tokenizer::*;
+use crate::lang::types::*;
+use crate::pager::Pager;
+use crate::record::*;
+use crate::schema::*;
+use crate::table::*;
 
-// use crate::*; 
+// use crate::*;
 
 pub struct DBMS {
     pub databases: HashMap<String, Database>,
@@ -25,7 +25,7 @@ pub struct DBMS {
 
 //TODO: might need some sort of cursor management
 
-impl DBMS{
+impl DBMS {
     pub fn init() {
         //
     }
@@ -35,14 +35,13 @@ impl DBMS{
         }
     }
     pub fn create_table() {}
-    pub fn get_db_mut(&mut self, db_name:String) -> Option<&mut Database> {
-
-        return self.databases.get_mut(&db_name); 
+    pub fn get_db_mut(&mut self, db_name: &String) -> Option<&mut Database> {
+        return self.databases.get_mut(db_name);
     }
 
-    pub fn get_table_mut(&mut self, db_name:String, table_name:String) -> Option<&mut Table> {
-        if let Some(x) = self.databases.get_mut(&db_name) {
-            return x.get_table_mut(&table_name);
+    pub fn get_table_mut(&mut self, db_name: &String, table_name: &String) -> Option<&mut Table> {
+        if let Some(x) = self.databases.get_mut(db_name) {
+            return x.get_table_mut(table_name);
         }
         None
     }
@@ -61,11 +60,10 @@ mod tests {
     fn test_full_pipeline() {
         let mut tokenizer = Tokenizer::new(
             "
-        let x = db.TABLES.b.filter().orderby(); 
-        let y = db.TABLES.x ; 
-        x.filter(); 
+        let x = dbs.test_db.test_table.limit(10);  
+        let y = dbs.test_db2.tb2.offset(1).limit(10);
         let z = x JOIN y ON id=id;  
-        z.select(a,b,c,d) ;
+        z.select(a) ;
         ",
         );
 
@@ -93,51 +91,94 @@ mod tests {
             indexes: HashMap::new(),
         };
 
-     
-        let record1 = DocumentRecord { 
-            id: Some(0), 
-            fields:   HashMap::from([
-                ("name".to_string(), DocumentValue::String("John Doe".to_string())),
-                ("age".to_string(), DocumentValue::Number(30.0)),
-                ("city".to_string(), DocumentValue::String("New York".to_string())),
-                ("address".to_string(), DocumentValue::Object(HashMap::from([
-                    ("street".to_string(), DocumentValue::String("123 Main St".to_string())),
-                    ("zip".to_string(), DocumentValue::String("10001".to_string())),
-                ]))),
-                ("phone_numbers".to_string(), DocumentValue::Array(vec![
-                    DocumentValue::String("123-456-7890".to_string()),
-                    DocumentValue::String("987-654-3210".to_string()),
-                ])),
-                ])
-            };
-
-        let record2 = DocumentRecord { 
-            id: Some(1), 
+        let record1 = DocumentRecord {
+            id: Some(0),
             fields: HashMap::from([
-                    ("name".to_string(), DocumentValue::String("Jane Smith".to_string())),
-                    ("age".to_string(), DocumentValue::Number(25.0)),
-                    ("city".to_string(), DocumentValue::String("London".to_string())),
-                    ("address".to_string(), DocumentValue::Object(HashMap::from([
-                        ("street".to_string(), DocumentValue::String("456 High St".to_string())),
-                        ("zip".to_string(), DocumentValue::String("SW1A 1AA".to_string())),
-                    ]))),
-                    ("phone_numbers".to_string(), DocumentValue::Array(vec![
-                        DocumentValue::String("020-1234-5678".to_string()),
+                (
+                    "name".to_string(),
+                    DocumentValue::String("John Doe".to_string()),
+                ),
+                ("age".to_string(), DocumentValue::Number(30.0)),
+                (
+                    "city".to_string(),
+                    DocumentValue::String("New York".to_string()),
+                ),
+                (
+                    "address".to_string(),
+                    DocumentValue::Object(HashMap::from([
+                        (
+                            "street".to_string(),
+                            DocumentValue::String("123 Main St".to_string()),
+                        ),
+                        (
+                            "zip".to_string(),
+                            DocumentValue::String("10001".to_string()),
+                        ),
                     ])),
-                    ("employment".to_string(), DocumentValue::Object(HashMap::from([
-                        ("company".to_string(), DocumentValue::String("Acme Inc.".to_string())),
-                        ("position".to_string(), DocumentValue::String("Software Engineer".to_string())),
-                        ("start_date".to_string(), DocumentValue::Object(HashMap::from([
-                            ("year".to_string(), DocumentValue::Number(2022.0)),
-                            ("month".to_string(), DocumentValue::Number(1.0)),
-                        ]))),
-                    ]))),
-                ])
+                ),
+                (
+                    "phone_numbers".to_string(),
+                    DocumentValue::Array(vec![
+                        DocumentValue::String("123-456-7890".to_string()),
+                        DocumentValue::String("987-654-3210".to_string()),
+                    ]),
+                ),
+            ]),
+        };
+
+        let record2 = DocumentRecord {
+            id: Some(1),
+            fields: HashMap::from([
+                (
+                    "name".to_string(),
+                    DocumentValue::String("Jane Smith".to_string()),
+                ),
+                ("age".to_string(), DocumentValue::Number(25.0)),
+                (
+                    "city".to_string(),
+                    DocumentValue::String("London".to_string()),
+                ),
+                (
+                    "address".to_string(),
+                    DocumentValue::Object(HashMap::from([
+                        (
+                            "street".to_string(),
+                            DocumentValue::String("456 High St".to_string()),
+                        ),
+                        (
+                            "zip".to_string(),
+                            DocumentValue::String("SW1A 1AA".to_string()),
+                        ),
+                    ])),
+                ),
+                (
+                    "phone_numbers".to_string(),
+                    DocumentValue::Array(vec![DocumentValue::String("020-1234-5678".to_string())]),
+                ),
+                (
+                    "employment".to_string(),
+                    DocumentValue::Object(HashMap::from([
+                        (
+                            "company".to_string(),
+                            DocumentValue::String("Acme Inc.".to_string()),
+                        ),
+                        (
+                            "position".to_string(),
+                            DocumentValue::String("Software Engineer".to_string()),
+                        ),
+                        (
+                            "start_date".to_string(),
+                            DocumentValue::Object(HashMap::from([
+                                ("year".to_string(), DocumentValue::Number(2022.0)),
+                                ("month".to_string(), DocumentValue::Number(1.0)),
+                            ])),
+                        ),
+                    ])),
+                ),
+            ]),
         };
 
         // need to make relational records also
-
-
 
         let mut db = Database::new("hello".to_string());
 
@@ -148,22 +189,19 @@ mod tests {
 
         db.tables.insert("test_table".to_string(), table);
 
-
-        let mut dbms = DBMS::new(); 
-        dbms.databases.insert("test_db".to_string(), db ); 
-
+        let mut dbms = DBMS::new();
+        dbms.databases.insert("test_db".to_string(), db);
 
         // get the table ref back
-        let mut db1 = dbms.get_db_mut("test_db".to_string()).unwrap();
-        
-        let table_name = "test_table".to_string(); 
+        let db1: &mut Database = dbms.get_db_mut(&"test_db".to_string()).unwrap();
 
+        let table_name = "test_table".to_string();
 
         // Insert the first record
         let result1 = db1.insert_document_row(&table_name, record1.clone());
         match result1 {
             Ok(_) => (),
-            Err(err) => println!("{:?}", err)
+            Err(err) => println!("{:?}", err),
         }
         // assert!(result1.is_ok());
 
@@ -179,9 +217,5 @@ mod tests {
         assert_eq!(document_page.records.len(), 2);
         assert_eq!(&document_page.records[0], &record1);
         assert_eq!(&document_page.records[1], &record2);
-
-
-
-
     }
 }

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use crate::record::DocumentRecord;
 use crate::table::*;
 use crate::error::*;
+use crate::record::*;
 use crate::pager::Pager;
 
 
@@ -51,5 +52,11 @@ impl Database {
        }
     }
 
+    pub fn get_rows_in_range(&mut self, table_name: &String, start:usize, end:usize) -> Result<Records> {
+       match self.tables.get_mut(table_name) {
+        Some(x) => x.get_rows_in_range(&mut self.pager, start, end),
+        None => Err(Error::Unknown("Table not found".to_string())), 
+       }
+    }
 
 }

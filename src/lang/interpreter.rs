@@ -1,14 +1,21 @@
 use std::collections::HashMap;
 use std::ops::Deref;
 
+use crate::database::*;
+use crate::dbms::*;
 use crate::error::*;
 use crate::lang::ast::*;
 use crate::lang::types::*;
-use crate::record::*;
-use crate::table::*;
 use crate::pager::*;
+use crate::record::*;
 use crate::record_iterator::*;
+use crate::table::*;
+use std::clone::Clone;
+use std::fmt;
 
+use std::cell::RefCell;
+
+const DEFAULT_CHUNK_SIZE: usize = 32;
 //maybe we call this a resolver / unroller kind of thing?
 // but then, it doesnt modify anything, just visits
 // so lets see about that
@@ -40,126 +47,34 @@ use crate::record_iterator::*;
 // so then, we are returning custom record iterators
 // think about this
 
-
-
-
 //TODO: record iterator with a predicate is much easier to work over than the iterclosure
 // iterclosure should be for joins, as the final eval thing, record iterator should be for datacall
 
 // TODO: lets work backward from the predicate function?
 
-// fix this
-
-//variadic types by using vecs, maybe groupings?
-static F_ARGS: HashMap<MethodType, Vec<ValueType>> = HashMap::from([
-    (MethodType::OrderBy, vec![ValueType::String]), //we want some attr tho
-    (MethodType::GroupBy, vec![ValueType::String]),
-    (MethodType::Filter, vec![]), //we want some predicate function
-    (MethodType::Select, vec![]), //we need variadic type specs
-    (MethodType::SelectDistinct, vec![]), 
-    (MethodType::Offset, vec![ValueType::Number]),
-    (MethodType::Limit, vec![ValueType::Number]),
-
-    // need to move these elsewhere    
-    (MethodType::Max, vec![]),
-    (MethodType::Min, vec![]),
-    (MethodType::Sum, vec![]),
-    (MethodType::Count, vec![]),
-    (MethodType::CountDistinct, vec![]),
-
-    (MethodType::Illegal, vec![]),
-]);
-
-
-// fn check_method(
-//     method_type: MethodType,
-//     args: &Vec<Literal>,
-// ) -> Result<()> {
-
-//     //handle method arguments
-//     if let Some(expected_args) = F_ARGS.get(&method_type) {
-//         let mut curr: usize = 0;
-//         let mut internal_count:usize = 0;
-
-//         for (idx, arg) in args.iter().enumerate() {
-//             // walk through the arugments and f_args together
-//                 // check that curr value is still in range
-//             if curr >= expected_args.len() {
-//                 // Err(Error::TypeError)
-//                 return Err( Error::TypeError(format!(
-//                     "Invalid number of arguments for method '{}'. Expected {:?} arguments, but got {:?} instead \n.",
-//                     method_name,
-//                     expected_args,
-//                     args
-//                 ) ) );
-//             }
-//             // otherwise, we are good
-//             let curr_farg = &expected_args[curr];
-//             if curr_farg.starts_with("list") {
-//                 // internal type
-//                 let internal_type = &curr_farg[5..curr_farg.len()-2];
-//                 // check internal type
-//                 if internal_type == *arg {
-//                     internal_count +=1
-//                 } else {
-//                     // we might be done with this type
-//                     if internal_count == 0 {
-//                         //we did not capture anything, err
-//                         return Err(Error::TypeError(format!("Type mismatch, did not capture any {:?} for {:?} .", curr_farg, method_name)));
-//                     }
-//                     curr += 1;
-//                     // have to check again
-//                     if curr >= expected_args.len() {
-//                         // Err(Error::TypeError)
-//                         return Err( Error::TypeError(format!(
-//                             "Invalid number of arguments for method '{}'. Expected {:?} arguments, but got {:?} instead \n.",
-//                             method_name,
-//                             expected_args,
-//                             args
-//                         ) ) );
-//                     }
-
-//                     // lets handle the new one here then
-//                     if expected_args[curr] != *arg {
-//                         return Err(Error::TypeError(format!("Type mismatch, expected {:?}, got {:?} instead.", expected_args[curr], arg)));
-//                     }
-//                     curr +=1 ;
-//                 }
-//             } else {
-//                 // just a normal type then
-//                     if curr_farg != arg {
-//                         return Err(Error::TypeError(format!("Type mismatch, expected {:?}, got {:?} instead.", curr_farg, arg)));
-//                     }
-//                     curr +=1 ;
-//                 }
-//         }
-//     }
-// }
-
-//rename this func
 pub fn get_assign_vars(expr: &Expr) -> Result<Vec<String>> {
     match &expr {
         Expr::Assign(e) => {
-            
+            // think about it, this left token is not unwrapped into variable or attr, could be either
+            let mut res = vec![e.name.literal.clone().unwrap()]; // this is fine, right
 
-        // think about it, this left token is not unwrapped into variable or attr, could be either
-        let mut res = vec![e.name.literal.unwrap()]; // this is fine, right
-
-        match &*(e.value) {
-            Expr::Attribute(y) => {
-                unimplemented!();  // i think that question is meant to go here actually
-            },
-            Expr::Variable(y) => {
-                // unimplemented!();  // do we want this?
-                res.push(y.name.literal.unwrap())
-            },
-            _ => return Err(Error::TypeError(
-                "Expr type not supported as rval in a predicate expr".to_string(),
-            ))
+            match &*(e.value) {
+                Expr::Attribute(y) => {
+                    unimplemented!(); // i think that question is meant to go here actually
+                }
+                Expr::Variable(y) => {
+                    // unimplemented!();  // do we want this?
+                    res.push(y.name.literal.clone().unwrap())
+                }
+                _ => {
+                    return Err(Error::TypeError(
+                        "Expr type not supported as rval in a predicate expr".to_string(),
+                    ))
+                }
             }
-            
-        Ok(res)
-        },
+
+            Ok(res)
+        }
         _ => Err(Error::TypeError(
             "Expr type not supported as a predicate expr".to_string(),
         )),
@@ -167,29 +82,24 @@ pub fn get_assign_vars(expr: &Expr) -> Result<Vec<String>> {
 }
 
 pub struct IterClosure {
-    pub get_next_chunk: Box<dyn Fn(&mut Pager, &mut Table) -> Result<Option<Records>>>,
+    pub get_next_chunk: Box<dyn Fn(&mut DBMS) -> Result<Option<Records>>>,
 }
-
 
 // maybe we are going to far with this?
 // it should just be some simple assignment expr like a = b
-pub struct PredicateClosure{
+pub struct PredicateClosure {
     // what happens if its only one record, we create another func, this seems brittle
     eval: Box<dyn Fn(&Record, &Record) -> bool>,
 }
 
 struct Interpreter {
-    //some variables I guess
-    // we need a better local state here
-    pub variables: HashMap<String, RecordIterator>,
+    // do we need better local state here? what else?
+    pub variables: HashMap<String, IterClosure>,
+    pub ast: AST,
 }
 
-// some hard rules need to be set in place
-// i.e. no binary or unary expressions allowed for record iterators, they should only need joins and aggregate ops
-
-impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator> > for Interpreter {
-
-    fn visit_binary(&mut self, expr: &Binary) -> Result<Literal> {
+impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator>> for Interpreter {
+    fn visit_binary(&self, expr: &Binary) -> Result<Literal> {
         let mut left = self.evaluate_lower(&expr.left)?;
         let mut right = self.evaluate_lower(&expr.right)?;
 
@@ -297,14 +207,14 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator> > 
     }
 
     // }
-    fn visit_grouping(&mut self, expr: &Grouping) -> Result<Literal> {
+    fn visit_grouping(&self, expr: &Grouping) -> Result<Literal> {
         return self.evaluate_lower(&expr.expression);
     }
-    fn visit_literal(&mut self, expr: &Literal) -> Result<Literal> {
+    fn visit_literal(&self, expr: &Literal) -> Result<Literal> {
         // i doubt this place will be called?
         return Ok(expr.clone());
     }
-    fn visit_unary(&mut self, expr: &Unary) -> Result<Literal> {
+    fn visit_unary(&self, expr: &Unary) -> Result<Literal> {
         match &*(expr.right) {
             Expr::Literal(x) => match &expr.operator._type {
                 TokenType::Plus => Ok(x.clone()),
@@ -340,7 +250,7 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator> > 
         }
     }
 
-    fn visit_logical_expr(&mut self, expr: &Logical) -> Result<Literal> {
+    fn visit_logical_expr(&self, expr: &Logical) -> Result<Literal> {
         // only booleans allowed
         let mut left = self.evaluate_lower(&expr.left)?;
         let mut right = self.evaluate_lower(&expr.right)?;
@@ -386,152 +296,157 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator> > 
         }
     }
 
-    fn visit_assign(&mut self, expr: &Assign) -> Result<IterClosure> {
+    fn visit_assign(&self, expr: &Assign) -> Result<IterClosure> {
         // this is not bound to happen as variable assignments have been taken care of
         // maybe when filter closures and the like are being figured out
         unimplemented!()
     }
 
     // we should also clone here, better to have some static copy
-    fn visit_variable(&mut self, expr: &Variable) -> Result<IterClosure> {
+    fn visit_variable(&self, expr: &Variable) -> Result<IterClosure> {
         // in this situation, we just return the evaluation of the variable.
         // if it is the first time being defined we store, otherwise, we return from the map
 
         //TODO: a variable should be guaranteed some literal ; its just unwrap for now
-        match self.variables.get((&expr.name.literal.clone().unwrap())) {
-            Some(y) => Ok(y.clone()),
-            None => Err(Error::NotFound(format!(
-                "Variable {:?} does not exist",
-                expr
-            ))),
-        }
+
+        return self.visit_variable_token(&expr.name);
+        // match self.variables.get((&expr.name.literal.clone().unwrap())) {
+        //     Some(y) => Ok(*y),
+        //     None => Err(Error::NotFound(format!(
+        //         "Variable {:?} does not exist",
+        //         expr
+        //     ))),
+        // }
     }
 
     // an atrribute could just be some recorditerator with a set of predicates applied to it!
-    fn visit_attribute(&mut self, expr: &Attribute) -> Result<IterClosure> {
-        //an attribute is a select statement applied to a variable
 
-        let left = &expr.tokens[0].literal.clone().unwrap();
-        if self.variables.contains_key(left) {
-            // this only works for things like x.id
-            let mut var = self.visit_variable_token(&expr.tokens[0]).unwrap();
-            for t in &expr.tokens[1..] {
-                match &var.predicate.select {
-                    Some(x) => {
-                        x.push(t.literal.clone().unwrap());
-                    ()} ,
-                    None => { 
-                      var.predicate.select =  Some(vec![t.literal.clone().unwrap()]);
-                      ()
-                    },
+    // TODO: i dont think we need this anymore
+    // fn visit_attribute(&mut self, expr: &Attribute) -> Result<IterClosure> {
+    //     //an attribute is a select statement applied to a variable
+
+    //     let left = &expr.tokens[0].literal.clone().unwrap();
+    //     if self.variables.contains_key(left) {
+    //         // this only works for things like x.id
+    //         let mut var = self.visit_variable_token(&expr.tokens[0]).unwrap();
+    //         for t in &expr.tokens[1..] {
+    //             match &var.predicate.select {
+    //                 Some(x) => {
+    //                     x.push(t.literal.clone().unwrap());
+    //                 ()} ,
+    //                 None => {
+    //                   var.predicate.select =  Some(vec![t.literal.clone().unwrap()]);
+    //                   ()
+    //                 },
+    //             }
+    //         }
+
+    //         return Ok(var);
+    //     } else {
+    //         // TODO: what about DB.table.X or some shit
+    //         // have to deal with this here
+    //         unimplemented!()
+    //     }
+    // }
+
+    // i like recorditerator because I can introspect on its predicate, for optimization
+    fn visit_data_call(&self, expr: &DataCall) -> Result<RecordIterator> {
+        let mut db_name = String::new();
+        let mut table_name = String::new();
+
+        // we are expecting dbs.db_name.table_name.transformation()...
+        let tokens: Vec<String> = expr.attr.tokens.iter().map(|x| x.lexeme.clone()).collect();
+
+        //should be at least one val right
+        match tokens[0].as_str() {
+            "dbs" => {
+                if tokens.len() >= 3 {
+                    db_name = tokens[1].clone();
+                    table_name = tokens[2].clone();
+                } else {
+                    return Err(Error::Unknown(format!(
+                        "insufficient datacall attr {:?}",
+                        &tokens
+                    )));
                 }
             }
-
-            return Ok(var);
-        } else {
-            // TODO: what about DB.table.X or some shit
-            // have to deal with this here
-            unimplemented!()
+            _ => {
+                return Err(Error::Unknown(format!(
+                    "Unsupported datacall attr {}",
+                    &tokens[0]
+                )))
+            }
         }
-    }
-    fn visit_data_call(&mut self, expr: &DataCall) -> Result<RecordIterator> {
 
+        //check the table
 
-        //left should be a RecordIterator
-        // we need to be able to take this left val, and get a table somehow
-        // maybe the database maintains a hashmap? then we just have to resolve whatever var is here
-        // into its full attr, then
-        // what do you know, we already thought of this eh
-        let mut left = self.evaluate(&Expr::Attribute(expr.attr.clone())).unwrap();
-        let mut pred = RPredicate::new() ;
-
-        // we need to map the args into lower exprs somehow
-        // and we havent figured out the MAX MIN args, whether they should be funcs or not
-        // maybe we just try lower then higher, or make a special kind of call for those?
-        // but they are just attrs after all
-
-        let mut res = IterClosure {
-            get_next_chunk : Box::new(|pager, table| {Ok(None)})
-        };
+        let mut pred = RPredicate::new();
 
         for (method, args) in expr.methods.iter().zip(&expr.arguments) {
-
             // resolve into lowers
             let mut resolved_args: Vec<Literal> = Vec::new();
             for arg in args {
                 match self.evaluate_lower(arg) {
                     Ok(x) => resolved_args.push(x),
-                    Err(e) => return Err(e)
+                    Err(e) => return Err(e),
                 }
-
-                // we are going to iteratively roll up our iterclosures based on the predicates being applied.
-                // optimization cannot take place at this IR then
-
-                // no, we accumulate the predicates and have only one record iterator at the end
-
             }
 
             // still need to do the typechecking here
-
             match method {
                 MethodType::Limit => {
                     if resolved_args.len() != 1 {
-                        return Err(Error::TypeError("Limit method requires 1 integer input ONLY.".to_string()));
+                        return Err(Error::TypeError(
+                            "Limit method requires 1 integer input ONLY.".to_string(),
+                        ));
                     }
                     match &resolved_args[0].value.value {
-                        ValueData::Number(x) => { 
+                        ValueData::Number(x) => {
                             pred.offset = Some(*x as usize);
-                        },
-                        _ => return Err(Error::TypeError("Limit method requires 1 INTEGER input only.".to_string()))
+                        }
+                        _ => {
+                            return Err(Error::TypeError(
+                                "Limit method requires 1 INTEGER input only.".to_string(),
+                            ))
+                        }
                     }
-                    
-                },
+                }
                 MethodType::Offset => {
                     if resolved_args.len() != 1 {
-                        return Err(Error::TypeError("Offset method requires 1 integer input ONLY.".to_string()));
+                        return Err(Error::TypeError(
+                            "Offset method requires 1 integer input ONLY.".to_string(),
+                        ));
                     }
                     match &resolved_args[0].value.value {
-                        ValueData::Number(x) => { 
-                            pred.limit= Some(*x as usize);
-                        },
-                        _ => return Err(Error::TypeError("Offset method requires 1 INTEGER input only.".to_string()))
+                        ValueData::Number(x) => {
+                            pred.limit = Some(*x as usize);
+                        }
+                        _ => {
+                            return Err(Error::TypeError(
+                                "Offset method requires 1 INTEGER input only.".to_string(),
+                            ))
+                        }
                     }
-                    
-                },
-                _ => unimplemented!()
+                }
+                _ => unimplemented!(),
             }
-
-
         }
 
-        // remember , besides that, that we have to generate some iter function
-        // we are still working on that
-        // TODO: maybe create a custom next : Option<dyn Fn() -> Records> on RecordIterator
-
-        return Ok(left);
+        let res = RecordIterator::new(DEFAULT_CHUNK_SIZE, pred, db_name, table_name);
+        return Ok(res);
     }
 
-    fn visit_data_expr(&mut self, expr: &DataExpr) -> Result<IterClosure> {
+    fn visit_data_expr(&self, expr: &DataExpr) -> Result<IterClosure> {
+        //expecting data_call JOIN data_call on id1=id2
+        let left = RefCell::new(self.evaluate_call(&expr.left)?);
+        let right = RefCell::new(self.evaluate_call(&expr.right)?);
 
-        //NOTE: this restriction means only datacals will be evaled here, im fine with that
-        let left = self.evaluate_call(&expr.left)?;
-        let right = self.evaluate_call(&expr.right)?;
-
-        // I think this layer of abstraction is fine so far
-
-        // let join_expr = self.evaluate_predicate(&expr.join_expr);
-
-        // lets just do this shit here
         let join_vals = get_assign_vars(&expr.join_expr)?;
 
-
-        //so how do we resolve join exprs?
-        // we just do it here?
-        // it should just be an attr / string value right
-        // its actually an assignment expr, fk
-
-        // its a boolean expression, so we need somre predicate evaluator kinda shit
-
+        println!(
+            "Join Expr: {:?} ; Join Vals : {:?}",
+            &expr.join_expr, join_vals
+        );
 
         match &expr.join._type {
             TokenType::Ljoin => {
@@ -547,77 +462,78 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator> > 
                 // also, we need the join predicate
 
                 let res = IterClosure {
-                    get_next_chunk : Box::new( move |pager, table | {
-
-                        // we are going to have to figure out the table part
-                        // very temp
-                        let l_chunk = (left.get_next_chunk)(pager, table)?;
-                        let r_chunk = (right.get_next_chunk)(pager, table)?;
+                    get_next_chunk: Box::new(move |mut dbms| {
+                        let mut l_chunk = (*left.borrow_mut()).get_next_chunk(&mut dbms)?;
+                        let r_chunk = (*right.borrow_mut()).get_next_chunk(&mut dbms)?;
 
                         //check the nulls
                         if r_chunk.is_none() {
-                            return Ok(l_chunk)
+                            return Ok(l_chunk);
                         }
                         if l_chunk.is_none() {
-                            return Ok(None)
+                            return Ok(None);
                         }
 
-
-                        for (l, r) in l_chunk.iter().zip(r_chunk.iter()) {
+                        for (l, r) in l_chunk.iter_mut().zip(r_chunk.iter()) {
                             match (l, r) {
                                 (Records::DocumentRows(x), Records::DocumentRows(y)) => {
-                                    for (a,b) in x.iter().zip(y) {
-                                        if (a.get_field(&join_vals[0]) == b.get_field(&join_vals[1]) ) && a.fields.get(&join_vals[0]).is_some() {
+                                    for (a, b) in x.iter_mut().zip(y) {
+                                        if (a.get_field(&join_vals[0])
+                                            == b.get_field(&join_vals[1]))
+                                            && a.fields.get(&join_vals[0]).is_some()
+                                        {
                                             // zip these two then
                                             a.fields.extend(b.fields.clone());
                                         }
                                         // otherwise, we do nothing. no null fields here, need schema for that
                                     }
 
-                                    return Ok(Some(Records::DocumentRows(*x)));
-
-                                },
+                                    //hate that I have to clone this
+                                    return Ok(Some(Records::DocumentRows(x.clone())));
+                                }
                                 (Records::DocumentRows(x), Records::RelationalRows(y)) => {
-                                    for (a,b) in x.iter().zip(y) {
-                                        if (a.get_field_as_relational(&join_vals[0]).as_ref() == b.get_field(&join_vals[1]) ) && a.get_field(&join_vals[0]).is_some() {
+                                    for (a, b) in x.iter_mut().zip(y) {
+                                        if (a.get_field_as_relational(&join_vals[0]).as_ref()
+                                            == b.get_field(&join_vals[1]))
+                                            && a.get_field(&join_vals[0]).is_some()
+                                        {
                                             // zip these two then
-                                            for (k,v) in b.fields.iter() {
-                                                a.fields[k] = v.to_document_value();
+                                            for (k, v) in b.fields.iter() {
+                                                a.fields.insert(k.clone(), v.to_document_value());
                                             }
-
                                         }
                                         // otherwise, we do nothing. no null fields here, need schema for that
                                     }
 
-                                    return Ok(Some(Records::DocumentRows(*x)));
-
-                                },
+                                    return Ok(Some(Records::DocumentRows(x.clone())));
+                                }
                                 (Records::RelationalRows(x), Records::DocumentRows(y)) => {
-
                                     // this is the weaker form, should we neglect it?
                                     unimplemented!()
-                                },
+                                }
                                 (Records::RelationalRows(x), Records::RelationalRows(y)) => {
-
                                     // same shit, but construct a new schema?
                                     // or do we just bring it into document form, that would be chill?
-                                    // nah    
+                                    // nah
                                     unimplemented!()
-                                },
-                                _ => return Err(Error::TypeError(format!("Cannot join {:?} on {:?} yet!", &l, &r)))
+                                }
+                                _ => {
+                                    return Err(Error::TypeError(format!(
+                                        "Cannot join {:?} on {:?} yet!",
+                                        &l_chunk, &r_chunk
+                                    )))
+                                }
                             }
-                        } 
-                        return Ok(None); 
-
+                        }
+                        return Ok(None);
                     }),
-                }
-                Ok(res) 
-
-            },
+                };
+                Ok(res)
+            }
             TokenType::Join => {
                 // left join, we basically iter and zip where we can (based on id), but we discard non matches
                 unimplemented!()
-            },
+            }
             _ => unimplemented!(),
         }
     }
@@ -643,27 +559,57 @@ impl StmtVisitor<Result<IterClosure>> for Interpreter {
 }
 
 impl Interpreter {
+    fn new(ast: AST) -> Self {
+        Self {
+            ast: ast,
+            variables: HashMap::new(),
+        }
+    }
     // makes more sense to get a clone we can modify for attrs and elsewhere also
-    fn visit_variable_token(&mut self, token: &Token) -> Result<RecordIterator> {
-        // in this situation, we just return the evaluation of the variable.
-        // if it is the first time being defined we store, otherwise, we return from the map
-
+    fn visit_variable_token(&self, token: &Token) -> Result<IterClosure> {
         //TODO: a variable should be guaranteed some literal ; its just unwrap for now
-        match self.variables.get(&token.literal.clone().unwrap()) {
-            Some(y) => Ok(y.clone()),
+        match self.ast.lookup_table.get(&token.literal.clone().unwrap()) {
+            //resolve variable into only IterClosure for now
+            Some(y) => {
+                let m = match &y.data {
+                    NodeData::Join(x) => unimplemented!(),
+                    NodeData::Source(x) => Ok(self.evaluate(&x.source).unwrap()),
+
+                    // TODO: something like this could be circular i.e x = x
+                    NodeData::Variable(x) => unimplemented!(),
+                    NodeData::Projection(x) => unimplemented!(),
+                };
+                m
+            }
             None => Err(Error::NotFound(format!(
                 "Variable {:?} does not exist",
                 token
             ))),
         }
+        // match self.variables.get(&token.literal.clone().unwrap()) {
+        //     Some(y) => Ok(*y),
+        //     None => Err(Error::NotFound(format!(
+        //         "Variable {:?} does not exist",
+        //         token
+        //     ))),
+        // }
     }
 
-    pub fn evaluate(&mut self, expr: &Expr) -> Result<IterClosure> {
+    pub fn evaluate(&self, expr: &Expr) -> Result<IterClosure> {
         let res = match &expr {
             Expr::Variable(expr) => self.visit_variable(expr),
-            Expr::Attribute(expr) => self.visit_attribute(expr),
+            // Expr::Attribute(expr) => self.visit_attribute(expr),
             Expr::Assign(expr) => self.visit_assign(expr),
-            // Expr::DataCall(expr) => self.visit_data_call(expr),
+            Expr::DataCall(expr) => {
+                let y = RefCell::new(self.visit_data_call(expr)?);
+
+                // hack to help out with the closure lifetime issue
+                let y_static = Box::leak(Box::new(y));
+
+                Ok(IterClosure {
+                    get_next_chunk: Box::new(|dbms| (*y_static.borrow_mut()).get_next_chunk(dbms)),
+                })
+            }
             Expr::DataExpr(expr) => self.visit_data_expr(expr),
             _ => Err(Error::TypeError(
                 "Expr type not supported in eval higher func".to_string(),
@@ -677,7 +623,7 @@ impl Interpreter {
 
     // }
 
-    pub fn evaluate_call(&mut self, expr: &Expr) -> Result<RecordIterator> {
+    pub fn evaluate_call(&self, expr: &Expr) -> Result<RecordIterator> {
         let res = match &expr {
             Expr::DataCall(expr) => self.visit_data_call(expr),
             _ => Err(Error::TypeError(
@@ -688,7 +634,7 @@ impl Interpreter {
         res
     }
 
-    pub fn evaluate_lower(&mut self, expr: &Expr) -> Result<Literal> {
+    pub fn evaluate_lower(&self, expr: &Expr) -> Result<Literal> {
         let res = match &expr {
             Expr::Grouping(expr) => self.visit_grouping(expr),
             Expr::Literal(expr) => self.visit_literal(expr),
@@ -713,29 +659,29 @@ impl Interpreter {
         }
     }
 
-    pub fn resolve_variables(&mut self, ast_lookup: &HashMap<String, Node>) {
-        for (k, v) in ast_lookup.iter() {
-            //resolve the variable into either some value or an IterWrapper kind of thing (with the proper args on it)
+    // pub fn resolve_variables(&mut self, ast_lookup: &HashMap<String, Node>) {
+    //     for (k, v) in ast_lookup.iter() {
+    //         //resolve variable into only IterClosure for now
 
-            let m = match &v.data {
-                NodeData::Join(x) => unimplemented!(),
-                NodeData::Source(x) => self.evaluate(&x.source).unwrap(),
+    //         let m = match &v.data {
+    //             NodeData::Join(x) => unimplemented!(),
+    //             NodeData::Source(x) => self.evaluate(&x.source).unwrap(),
 
-                // TODO: something like this could be circular i.e x = x
-                NodeData::Variable(x) => unimplemented!(),
-                NodeData::Projection(x) => unimplemented!(),
-            };
+    //             // TODO: something like this could be circular i.e x = x
+    //             NodeData::Variable(x) => unimplemented!(),
+    //             NodeData::Projection(x) => unimplemented!(),
+    //         };
 
-            self.variables.insert(k.to_string(), m);
-        }
-    }
+    //         self.variables.insert(k.to_string(), m);
+    //     }
+    // }
 
-    pub fn execute(&mut self, ast: AST) -> Result<Records> {
+    pub fn execute(&mut self) -> Result<Records> {
         // resolve all variables first
-        self.resolve_variables(&ast.lookup_table);
+        // self.resolve_variables(&ast.lookup_table);
 
         //traverse statements from earliest to latest
-        self.execute_processed_stmt(&ast.root);
+        self.execute_processed_stmt(&self.ast.root);
 
         // right now we have it top down, so we have to recurse and come back I guess
 

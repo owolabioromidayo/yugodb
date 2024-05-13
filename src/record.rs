@@ -17,6 +17,7 @@ pub enum Record {
 }
 
 // we dont want mixed records flowing in
+#[derive(Debug, Clone)]
 pub enum Records {
     DocumentRows(Vec<DocumentRecord>),
     DocumentColumns(Vec<ColumnarDocumentRecord>),
