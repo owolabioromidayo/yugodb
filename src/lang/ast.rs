@@ -30,13 +30,20 @@ impl JoinType{
 
 #[derive(Debug, Clone)]
 pub struct Projection {
-    expr: Expr
+   pub expr: DataCall 
 }
+
+// #[derive(Debug, Clone)]
+// pub struct Join { 
+//     _type: JoinType,
+//     predicate: Expr
+// }
 
 #[derive(Debug, Clone)]
 pub struct Join { 
-    _type: JoinType,
-    predicate: Expr
+    // pub _type: JoinType,
+    // pub predicate: Expr,
+    pub dataexpr: DataExpr
 }
 
 #[derive(Debug, Clone)]
@@ -169,8 +176,10 @@ impl AST  {
 
                 Some(Node {
                     _type: NodeType::Join, 
-                        data : NodeData::Join((Join{_type : JoinType::from_token(&expr.join), predicate: *(expr.join_expr).clone() })),
-                        children: vec![left_node, right_node]
+                        // data : NodeData::Join((Join{_type : JoinType::from_token(&expr.join), predicate: *(expr.join_expr).clone(), dataexpr: (*expr).clone() })),
+                        // children: vec![left_node, right_node]
+                        data : NodeData::Join((Join{dataexpr: (*expr).clone() })),
+                        children: vec![]
                 })
 
             }      
@@ -236,14 +245,21 @@ impl AST  {
 
         match projection {
             Stmt::Expression(expr) => {
+                match expr.expression {
+                    Expr::DataCall(x) => {
+                        self.root = Some(
+                            Node {
+                            _type: NodeType::Projection, 
+                                data : NodeData::Projection((Projection{expr: x})),
+                                children: Vec::new()
+                            }
+                        ); 
+                    },
+                    _ => {
+                        self.error("Final statement in query must be an projection expression!");
+                    }
+                }
 
-                self.root = Some(
-                     Node {
-                       _type: NodeType::Projection, 
-                        data : NodeData::Projection((Projection{expr: expr.expression})),
-                        children: Vec::new()
-                     }
-                ); 
              }
              _ => {
                 self.error("Final statement in query must be an projection expression!");

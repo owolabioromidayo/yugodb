@@ -603,8 +603,7 @@ mod tests {
     fn test_some_string(){
         let mut tokenizer = Tokenizer::new("
         let x = db.TABLES.b.filter(); 
-        let y = db.TABLES.x ; 
-        x.filter(); 
+        let y = db.TABLES.x.filter() ; 
         let z = x JOIN y ON id;  
         z.select(a,b,c,d) ;
         ");

@@ -16,41 +16,7 @@ use std::fmt;
 use std::cell::RefCell;
 
 const DEFAULT_CHUNK_SIZE: usize = 32;
-//maybe we call this a resolver / unroller kind of thing?
-// but then, it doesnt modify anything, just visits
-// so lets see about that
-// we might not be able to optimize for now then
 
-// so, evaluate actually resolves into some data values at the end
-// which means our fetcher might need to be built in here
-// we cant optimize in here then
-
-// the interpreter will take the tree and materialize some values then
-// so we need the DBMS abstraction in place
-// lets mock for now
-
-//so, do we materialize the variable into the dataflow expr?
-//its a quick and dirty start for sure
-
-//so, this means we really want to evaluate into a set of records
-// which will have to layer on top our our whole multi approach
-// so we might need some unified record abstraction enum?
-
-// we are going to need iter_vec in here reall soon
-// so we would need some sort of records iterator, instead of just getting it all at once
-
-// we are basically creating another tree with this approach, from what IM seeing
-// creating a tree of iterators,
-
-//what if we snowball it into one large iterator of sub iterators each with their own exec functions
-// that we define
-// so then, we are returning custom record iterators
-// think about this
-
-//TODO: record iterator with a predicate is much easier to work over than the iterclosure
-// iterclosure should be for joins, as the final eval thing, record iterator should be for datacall
-
-// TODO: lets work backward from the predicate function?
 
 pub fn get_assign_vars(expr: &Expr) -> Result<Vec<String>> {
     match &expr {
@@ -569,11 +535,15 @@ impl Interpreter {
     fn visit_variable_token(&self, token: &Token) -> Result<IterClosure> {
         //TODO: a variable should be guaranteed some literal ; its just unwrap for now
         match self.ast.lookup_table.get(&token.literal.clone().unwrap()) {
-            //resolve variable into only IterClosure for now
+            //resolve variable into only IterClosure for now (recorditerator would be better for optimization)
+
+            // we should be able to deal with attrs like db.TABLES.x , or do we enforce something like .offset(0) for now?
+            // this way seems like something I should get able to execute rn.
+
             Some(y) => {
                 let m = match &y.data {
-                    NodeData::Join(x) => unimplemented!(),
-                    NodeData::Source(x) => Ok(self.evaluate(&x.source).unwrap()),
+                    NodeData::Join(x) => self.evaluate(&Expr::DataExpr(x.dataexpr.clone())),
+                    NodeData::Source(x) => self.evaluate(&x.source),
 
                     // TODO: something like this could be circular i.e x = x
                     NodeData::Variable(x) => unimplemented!(),
@@ -649,44 +619,112 @@ impl Interpreter {
         res
     }
 
-    pub fn execute_processed_stmt(&self, stmt: &Option<Node>) {
-        if let Some(s) = stmt {
-            for child in &s.children {
-                self.execute_processed_stmt(child)
-            }
 
-            //execute the actual statement
+    pub fn execute_processed_stmt(&self, stmt: &Option<Node>, is_root: bool) -> Option<Result<IterClosure>> {
+
+        // this is where we roll it all togther, think about how we link to the children.
+        // yk what, just defining variables solves our chaining issues
+
+
+        if let Some(s) = stmt {
+
+            if s.children.len() == 1 {
+            //traverse statements from earliest to latest
+                // execute its child ( create the var iterclosure that might be propagated here)
+                self.execute_processed_stmt(&s.children[0], false);
+
+                //execute the actual statement
+
+                // this is going to be wasted computation for non root nodes
+                if is_root {
+                    match &s.data { 
+                        NodeData::Source(x) => {
+                            return Some(self.evaluate(&x.source));
+                        }
+                        NodeData::Join(x) => {
+                            let iter_closure = self.visit_data_expr(&x.dataexpr).unwrap();
+                            return Some(Ok(iter_closure));
+                        },
+                        NodeData::Projection(x) => {
+                            let iter_closure = self.evaluate(&Expr::DataCall((x.expr).clone())).unwrap();
+                            return Some(Ok(iter_closure));
+
+                        },
+                        NodeData::Variable(x) =>  {
+                            unimplemented!()
+                        }
+                        _ => {
+                            unimplemented!()
+                        }
+                    } 
+                } else {
+                    // not needed anyways
+                    return None
+                }
+
+            }else {
+                    return Some(Err(Error::Unknown("Was not expecting multiple chidlren!".to_string())));
+                }
+        } else {
+            return None //empty node brings nothing
         }
+        // unimplemented!()
     }
 
-    // pub fn resolve_variables(&mut self, ast_lookup: &HashMap<String, Node>) {
-    //     for (k, v) in ast_lookup.iter() {
-    //         //resolve variable into only IterClosure for now
 
-    //         let m = match &v.data {
-    //             NodeData::Join(x) => unimplemented!(),
-    //             NodeData::Source(x) => self.evaluate(&x.source).unwrap(),
-
-    //             // TODO: something like this could be circular i.e x = x
-    //             NodeData::Variable(x) => unimplemented!(),
-    //             NodeData::Projection(x) => unimplemented!(),
-    //         };
-
-    //         self.variables.insert(k.to_string(), m);
-    //     }
-    // }
-
-    pub fn execute(&mut self) -> Result<Records> {
+    pub fn execute(&mut self, dbms : &mut DBMS) -> Result<Records> {
         // resolve all variables first
-        // self.resolve_variables(&ast.lookup_table);
 
-        //traverse statements from earliest to latest
-        self.execute_processed_stmt(&self.ast.root);
+        if let Some(x) = self.execute_processed_stmt(&self.ast.root, true) {
+            let iter_closure = x?;
+            let mut records: Records; 
+            
+            // get initial chunk, for type matching
+            match (iter_closure.get_next_chunk)(dbms)? {
+                Some(chunk) => {
+                    records = chunk;
+                }
+                None => return Ok(Records::DocumentRows(Vec::new()))
+            }
 
-        // right now we have it top down, so we have to recurse and come back I guess
+            loop {
+                match (iter_closure.get_next_chunk)(dbms)? {
+                    Some(chunk) =>  { 
+                        match chunk {
+                            Records::DocumentRows(x) =>  {
+                                match records {
+                                    Records::DocumentRows(ref mut y) => {
+                                        y.extend(x); 
+                                    }
+                                    _ => unimplemented!() //mismatched types
+                                }
+                            }
+                            Records::RelationalRows(x) => {
+                                match records {
+                                    Records::RelationalRows(ref mut y) => {
+                                        y.extend(x); 
+                                    }
+                                    _ => unimplemented!() //mismatched types
+                                }
+                            },
+                            Records::DocumentColumns(x) => {
+                                match records {
+                                    Records::DocumentColumns(ref mut y) => {
+                                        y.extend(x); 
+                                    }
+                                    _ => unimplemented!() //mismatched types
+                                }
+                            },
+                        }
+                    } ,
+                    None => break,
+                }
+            }
 
-        // what this should do is create the record iterator tree, then we iter while we can?
-
-        unimplemented!()
+            return Ok(records);
+        } else {
+            return Err(Error::Unknown("Execute_processed_stmt returned none".to_string())); 
+            
+        }
     }
 }
