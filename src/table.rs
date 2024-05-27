@@ -32,14 +32,15 @@ pub struct Table {
     //how do we want to store the page indexes
     // we just need the most recent
     pub curr_page_id: usize,
-    pub curr_row_id: usize, // db row count basically
+    pub curr_row_id: usize,                // db row count basically
     pub page_index: HashMap<usize, usize>, //table page index -> filename, file_page_index
 
-    pub default_index: BPTreeInternalNode<usize, (usize, u8, u8)>, // page, offset and len
+    pub default_index: BPTreeLeafNode<usize, (usize, u8, u8)>, // page, offset and len
+    // pub default_index: BPTreeInternalNode<usize, (usize, u8, u8)>, // page, offset and len
     // TODO : setting the index type here defeats all generic programming
     // fuck, have to use an enum of diff configurations I guess
-    // guess making another trait would use more code, fk 
-    pub indexes: HashMap<String, Option<BPTreeInternalNode< usize, (usize, u8, u8)>>>, // need more than one for column dbs
+    // guess making another trait would use more code, fk
+    pub indexes: HashMap<String, Option<BPTreeInternalNode<usize, (usize, u8, u8)>>>, // need more than one for column dbs
 }
 
 // i dont think anything crazy needs to happen here, the predicates will be handled in the executor
@@ -54,11 +55,15 @@ impl Table {
     }
     // need to be able to package into new pages and update index(es)
 
-    pub fn insert_relational_row(&mut self, pager: &mut Pager, row: RelationalRecord) -> Result<bool> {
+    pub fn insert_relational_row(
+        &mut self,
+        pager: &mut Pager,
+        row: RelationalRecord,
+    ) -> Result<bool> {
         // unimplemented!()
         let schema = match &self.schema {
             Schema::Relational(x) => x,
-            _ => panic!("Unsupported schema type for relational record")
+            _ => panic!("Unsupported schema type for relational record"),
         };
 
         let mut curr_page = pager.get_page_forced(self.curr_page_id)?;
@@ -66,7 +71,6 @@ impl Table {
             Ok(page) => page,
             Err(_) => RelationalRecordPage::new(),
         };
-
 
         let new_data = row.serialize(&schema);
         if new_data.len() > PAGE_SIZE_BYTES {
@@ -117,6 +121,7 @@ impl Table {
     }
 
     pub fn insert_document_row(&mut self, pager: &mut Pager, row: DocumentRecord) -> Result<()> {
+        let id = row.id.unwrap().clone();
         let mut curr_page = pager.get_page_forced(self.curr_page_id)?;
         let mut document_page = match DocumentRecordPage::deserialize(&curr_page.bytes) {
             Ok(page) => page,
@@ -138,13 +143,20 @@ impl Table {
             self.curr_page_id += 1;
             self.page_index.insert(new_page.index, self.curr_page_id);
             self.default_index
-                .insert(self.curr_row_id, (self.curr_page_id, 0, 0)).unwrap(); // TODO: can offset be useful here?
-                                                                 // , no since we are just doing it on page creation
+                .insert(id, (self.curr_page_id, 0, 0))
+                .unwrap(); // TODO: can offset be useful here?
+                           // , no since we are just doing it on page creation
+            println!("Index after insertion full: {:?}", &self.default_index);
             pager.flush_page(&new_page)?;
         } else {
             // Append the record to the current page
             document_page.add_record(row);
             curr_page.bytes = bson::to_vec(&document_page)?;
+            self.default_index
+                .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0))
+                .unwrap(); // TODO: can offset be useful here?
+                           // , no since we are just doing it on page creation
+            println!("index after insertion{:?}", &self.default_index);
             pager.flush_page(&curr_page)?;
             // self.curr_page_id
         }
@@ -158,13 +170,21 @@ impl Table {
         // then create new pages here
     }
 
+    pub fn get_document_rows_in_range(
+        &self,
+        pager: &mut Pager,
+        start: usize,
+        end: usize,
+    ) -> Result<Records> {
+        let mut records = Vec::new();
 
-    pub fn get_document_rows_in_range(&self, pager: &mut Pager, start: usize, end: usize) -> Result<Records> {
-    let mut records = Vec::new();
+        println!("Getting rows in range {} - {}", start, end);
+        println!("Index: {:?}", &self.default_index);
 
         for row_id in start..=end {
             // Get the page and offset for the current row ID from the default index
             if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
+                println!("Record found");
                 // Fetch the page from the pager
                 let page = pager.get_page_forced(*page_id)?;
 
@@ -178,27 +198,29 @@ impl Table {
                 // would need to change our document serialization strat, make it more custom
                 if let Some(record) = document_page.records.get(*offset as usize) {
                     //feels wasteful man
+                    println!("Gotten record {:?} ", &record);
                     records.push(record.clone());
                 }
             }
+        }
+
+        Ok(Records::DocumentRows(records))
     }
 
-    Ok(Records::DocumentRows(records))
-}
-
-
-    pub fn get_rows_in_range(&mut self, pager: &mut Pager, start:usize, end:usize) -> Result<Records> {
+    pub fn get_rows_in_range(
+        &mut self,
+        pager: &mut Pager,
+        start: usize,
+        end: usize,
+    ) -> Result<Records> {
         match (&self._type, &self.storage_method) {
-            (TableType::Document, StorageModel::Row) =>  {
+            (TableType::Document, StorageModel::Row) => {
                 return self.get_document_rows_in_range(pager, start, end)
             }
-            _ => unimplemented!()
+            _ => unimplemented!(),
         }
-    // match based on the schema and document model, figure out what to do
-
+        // match based on the schema and document model, figure out what to do
     }
-
-
 
     pub fn insert_rows() {}
     pub fn delete_row() {}
@@ -251,7 +273,8 @@ mod tests {
             curr_page_id: 0,
             curr_row_id: 0,
             page_index: HashMap::new(),
-            default_index: BPTreeInternalNode::new(),
+            // default_index: BPTreeInternalNode::new(),
+            default_index: BPTreeLeafNode::new(),
             indexes: HashMap::new(),
         };
 

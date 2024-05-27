@@ -6,6 +6,7 @@ use crate::btree::*;
 use crate::database::*;
 use crate::error::*;
 use crate::lang::ast::*;
+use crate::lang::interpreter::*;
 use crate::lang::parser::*;
 use crate::lang::tokenizer::*;
 use crate::lang::types::*;
@@ -62,8 +63,9 @@ mod tests {
             "
         let x = dbs.test_db.test_table.limit(10);  
         let y = dbs.test_db2.tb2.offset(1).limit(10);
-        let z = x JOIN y ON id=id;  
-        z.select(a) ;
+        // let z = x JOIN y ON id=id;  
+        // z.select() ;
+        dbs.test_db.test_table.offset(0).limit(10);
         ",
         );
 
@@ -87,7 +89,8 @@ mod tests {
             curr_page_id: 0,
             curr_row_id: 0,
             page_index: HashMap::new(),
-            default_index: BPTreeInternalNode::new(),
+            default_index: BPTreeLeafNode::new(),
+            // default_index: BPTreeInternalNode::new(),
             indexes: HashMap::new(),
         };
 
@@ -180,7 +183,7 @@ mod tests {
 
         // need to make relational records also
 
-        let mut db = Database::new("hello".to_string());
+        let mut db = Database::new("test_db".to_string());
 
         //initialize 10 pages
         for _ in 0..10 {
@@ -210,12 +213,19 @@ mod tests {
         assert!(result2.is_ok());
 
         let table1 = db1.get_table(&"test_table".to_string()).unwrap();
+        println!("Table index {:?}", &table1.default_index);
         let page = db1.pager.get_page_forced(table1.curr_page_id).unwrap();
+
+        // println!("{:?}", table1.);
 
         // Check if the records are inserted correctly
         let document_page = DocumentRecordPage::deserialize(&page.bytes).unwrap();
         assert_eq!(document_page.records.len(), 2);
         assert_eq!(&document_page.records[0], &record1);
         assert_eq!(&document_page.records[1], &record2);
+
+        let mut interpreter = Interpreter::new(ast);
+        let res = interpreter.execute(&mut dbms);
+        println!("{:?}", res);
     }
 }

@@ -17,7 +17,6 @@ use std::cell::RefCell;
 
 const DEFAULT_CHUNK_SIZE: usize = 32;
 
-
 pub fn get_assign_vars(expr: &Expr) -> Result<Vec<String>> {
     match &expr {
         Expr::Assign(e) => {
@@ -58,7 +57,7 @@ pub struct PredicateClosure {
     eval: Box<dyn Fn(&Record, &Record) -> bool>,
 }
 
-struct Interpreter {
+pub struct Interpreter {
     // do we need better local state here? what else?
     pub variables: HashMap<String, IterClosure>,
     pub ast: AST,
@@ -316,7 +315,16 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator>> f
     // }
 
     // i like recorditerator because I can introspect on its predicate, for optimization
+
+    //TODO: we could also make it so that single line data calls i.e. x.filter() ; just update the
+    //iterclosure? thats too bad actually, because the access to the recorditerator would have already been lost
+
+    // the main point of all these optimizations even, is to think about how much data should be pulled in
+    // the first place, but this would only really help in like restricted ranges and columnar storage methods
+
     fn visit_data_call(&self, expr: &DataCall) -> Result<RecordIterator> {
+        // we need special support for system level prompts
+
         let mut db_name = String::new();
         let mut table_name = String::new();
 
@@ -336,11 +344,18 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator>> f
                     )));
                 }
             }
-            _ => {
+            tok => {
+                // check if var
+                // we've not resolved vars having iterclosures and data calls still returning recorditerators
+                // match self.variables.get(tok) {
+                //     Some(k) => {
+
+                //     }
+                // }
                 return Err(Error::Unknown(format!(
                     "Unsupported datacall attr {}",
                     &tokens[0]
-                )))
+                )));
             }
         }
 
@@ -368,7 +383,7 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator>> f
                     }
                     match &resolved_args[0].value.value {
                         ValueData::Number(x) => {
-                            pred.offset = Some(*x as usize);
+                            pred.limit = Some(*x as usize);
                         }
                         _ => {
                             return Err(Error::TypeError(
@@ -385,7 +400,7 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator>> f
                     }
                     match &resolved_args[0].value.value {
                         ValueData::Number(x) => {
-                            pred.limit = Some(*x as usize);
+                            pred.offset = Some(*x as usize);
                         }
                         _ => {
                             return Err(Error::TypeError(
@@ -394,6 +409,7 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator>> f
                         }
                     }
                 }
+                MethodType::Select => {}
                 _ => unimplemented!(),
             }
         }
@@ -525,7 +541,7 @@ impl StmtVisitor<Result<IterClosure>> for Interpreter {
 }
 
 impl Interpreter {
-    fn new(ast: AST) -> Self {
+    pub fn new(ast: AST) -> Self {
         Self {
             ast: ast,
             variables: HashMap::new(),
@@ -539,7 +555,6 @@ impl Interpreter {
 
             // we should be able to deal with attrs like db.TABLES.x , or do we enforce something like .offset(0) for now?
             // this way seems like something I should get able to execute rn.
-
             Some(y) => {
                 let m = match &y.data {
                     NodeData::Join(x) => self.evaluate(&Expr::DataExpr(x.dataexpr.clone())),
@@ -619,17 +634,17 @@ impl Interpreter {
         res
     }
 
-
-    pub fn execute_processed_stmt(&self, stmt: &Option<Node>, is_root: bool) -> Option<Result<IterClosure>> {
-
+    pub fn execute_processed_stmt(
+        &self,
+        stmt: &Option<Node>,
+        is_root: bool,
+    ) -> Option<Result<IterClosure>> {
         // this is where we roll it all togther, think about how we link to the children.
         // yk what, just defining variables solves our chaining issues
 
-
         if let Some(s) = stmt {
-
             if s.children.len() == 1 {
-            //traverse statements from earliest to latest
+                //traverse statements from earliest to latest
                 // execute its child ( create the var iterclosure that might be propagated here)
                 self.execute_processed_stmt(&s.children[0], false);
 
@@ -637,94 +652,97 @@ impl Interpreter {
 
                 // this is going to be wasted computation for non root nodes
                 if is_root {
-                    match &s.data { 
+                    match &s.data {
                         NodeData::Source(x) => {
                             return Some(self.evaluate(&x.source));
                         }
                         NodeData::Join(x) => {
                             let iter_closure = self.visit_data_expr(&x.dataexpr).unwrap();
                             return Some(Ok(iter_closure));
-                        },
+                        }
                         NodeData::Projection(x) => {
-                            let iter_closure = self.evaluate(&Expr::DataCall((x.expr).clone())).unwrap();
+                            let iter_closure =
+                                self.evaluate(&Expr::DataCall((x.expr).clone())).unwrap();
                             return Some(Ok(iter_closure));
-
-                        },
-                        NodeData::Variable(x) =>  {
+                        }
+                        NodeData::Variable(x) => {
                             unimplemented!()
                         }
                         _ => {
                             unimplemented!()
                         }
-                    } 
+                    }
                 } else {
                     // not needed anyways
-                    return None
+                    return None;
                 }
-
-            }else {
-                    return Some(Err(Error::Unknown("Was not expecting multiple chidlren!".to_string())));
-                }
+            } else {
+                return Some(Err(Error::Unknown(
+                    "Was not expecting multiple chidlren!".to_string(),
+                )));
+            }
         } else {
-            return None //empty node brings nothing
+            return None; //empty node brings nothing
         }
         // unimplemented!()
     }
 
-
-    pub fn execute(&mut self, dbms : &mut DBMS) -> Result<Records> {
+    pub fn execute(&mut self, dbms: &mut DBMS) -> Result<Records> {
         // resolve all variables first
 
         if let Some(x) = self.execute_processed_stmt(&self.ast.root, true) {
             let iter_closure = x?;
-            let mut records: Records; 
-            
+            let mut records: Records;
+
             // get initial chunk, for type matching
             match (iter_closure.get_next_chunk)(dbms)? {
                 Some(chunk) => {
+                    println!("We got a chunk: {:?}", &chunk);
                     records = chunk;
                 }
-                None => return Ok(Records::DocumentRows(Vec::new()))
+                None => return Ok(Records::DocumentRows(Vec::new())),
             }
 
             loop {
                 match (iter_closure.get_next_chunk)(dbms)? {
-                    Some(chunk) =>  { 
+                    Some(chunk) => {
+                        println!("We got a chunk: {:?}", &chunk);
                         match chunk {
-                            Records::DocumentRows(x) =>  {
+                            Records::DocumentRows(x) => {
                                 match records {
                                     Records::DocumentRows(ref mut y) => {
-                                        y.extend(x); 
+                                        y.extend(x);
                                     }
-                                    _ => unimplemented!() //mismatched types
+                                    _ => unimplemented!(), //mismatched types
                                 }
                             }
                             Records::RelationalRows(x) => {
                                 match records {
                                     Records::RelationalRows(ref mut y) => {
-                                        y.extend(x); 
+                                        y.extend(x);
                                     }
-                                    _ => unimplemented!() //mismatched types
+                                    _ => unimplemented!(), //mismatched types
                                 }
-                            },
+                            }
                             Records::DocumentColumns(x) => {
                                 match records {
                                     Records::DocumentColumns(ref mut y) => {
-                                        y.extend(x); 
+                                        y.extend(x);
                                     }
-                                    _ => unimplemented!() //mismatched types
+                                    _ => unimplemented!(), //mismatched types
                                 }
-                            },
+                            }
                         }
-                    } ,
+                    }
                     None => break,
                 }
             }
 
             return Ok(records);
         } else {
-            return Err(Error::Unknown("Execute_processed_stmt returned none".to_string())); 
-            
+            return Err(Error::Unknown(
+                "Execute_processed_stmt returned none".to_string(),
+            ));
         }
     }
 }

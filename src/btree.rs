@@ -41,7 +41,7 @@ impl BKey for String {}
 // impl BKey for &String {}
 // impl BKey for {}
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum BPTreeNodeEnum <T: BKey, U: Debug + Clone> {
     Internal(BPTreeInternalNode <T, U>),
     Leaf(BPTreeLeafNode<T, U>),
@@ -62,14 +62,14 @@ pub trait BPTreeNode <T: BKey, U: Debug + Clone> {
     fn split(&mut self) -> Result<BPTreeInternalNode< T, U>>;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BPTreeInternalNode <T: BKey, U: Debug + Clone > {
     keys: Vec<T>, // capacity M
     is_root: bool,
     children: Vec<Option<BPTreeNodeEnum<T, U>>>, // capacity M+1
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BPTreeLeafNode<T: PartialEq, U> {
     values: HashMap<T, U>,
     next_node: Option<Box<BPTreeLeafNode<T, U>>>, //  LList
@@ -333,7 +333,7 @@ impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T,U> {
 }
 
 impl <T: PartialEq, U> BPTreeLeafNode<T, U> {
-    fn new() -> BPTreeLeafNode<T, U> {
+    pub fn new() -> BPTreeLeafNode<T, U> {
         BPTreeLeafNode {
             values: HashMap::new(), // TODO: rename to map?
             next_node: None,
@@ -450,5 +450,7 @@ mod tests {
 
             BPTreeNodeEnum::Internal(n) => (),
         }
+
+        println!("Index after insertion: {:?}", internal_node);
     }
 }
