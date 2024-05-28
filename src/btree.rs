@@ -153,7 +153,7 @@ impl<T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T, U> {
         //check first one
 
         if *key > self.keys[self.child_count- 1] {
-            println!("What are we doing here");
+            // println!("What are we doing here");
             // we havent worked out this +1 thing yet
             if let Some(x) = &self.children[self.child_count + 1] {
                 println!("Searching {:?}", &x);

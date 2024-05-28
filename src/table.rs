@@ -35,7 +35,7 @@ pub struct Table {
     pub curr_row_id: usize,                // db row count basically
     pub page_index: HashMap<usize, usize>, //table page index -> filename, file_page_index
 
-    pub default_index: BPTreeLeafNode<usize, (usize, u8, u8)>, // page, offset and len
+    pub default_index: BPTreeInternalNode<usize, (usize, u8, u8)>, // page, offset and len
     // pub default_index: BPTreeInternalNode<usize, (usize, u8, u8)>, // page, offset and len
     // TODO : setting the index type here defeats all generic programming
     // fuck, have to use an enum of diff configurations I guess
@@ -274,7 +274,7 @@ mod tests {
             curr_row_id: 0,
             page_index: HashMap::new(),
             // default_index: BPTreeInternalNode::new(),
-            default_index: BPTreeLeafNode::new(),
+            default_index: BPTreeInternalNode::new(),
             indexes: HashMap::new(),
         };
 

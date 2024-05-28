@@ -11,6 +11,7 @@ use crate::lang::parser::*;
 use crate::lang::tokenizer::*;
 use crate::lang::types::*;
 use crate::pager::Pager;
+use crate::pager::*;
 use crate::record::*;
 use crate::schema::*;
 use crate::table::*;
@@ -96,7 +97,7 @@ mod tests {
             curr_page_id: 0,
             curr_row_id: 0,
             page_index: HashMap::new(),
-            default_index: BPTreeLeafNode::new(),
+            default_index: BPTreeInternalNode::new(),
             // default_index: BPTreeInternalNode::new(),
             indexes: HashMap::new(),
         };
@@ -221,6 +222,7 @@ mod tests {
 
         let table1 = db1.get_table(&"test_table".to_string()).unwrap();
         println!("Table index {:?}", &table1.default_index);
+
         let page = db1.pager.get_page_forced(table1.curr_page_id).unwrap();
 
         // println!("{:?}", table1.);

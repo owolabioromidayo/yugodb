@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fs::File;
 use std::io::{Read, Seek, Write};
 use std::collections::HashMap;
@@ -42,7 +43,7 @@ struct PageCache {
 pub struct Pager {
     fname_prefix: String, 
     file_map: HashMap<String, FileInfo>,
-    cache: PageCache,
+    cache: RefCell<PageCache>,
     page_index_map: HashMap<usize, (String, usize)>,// index -> file, page,
     page_count: usize,
 }
@@ -65,7 +66,7 @@ impl Pager  {
         Pager {
             fname_prefix,
             file_map: HashMap::new(),
-            cache: PageCache::new(),
+            cache: RefCell::new(PageCache::new()),
             page_index_map: HashMap::new(),
             page_count: 0 as usize,
         } 
@@ -190,14 +191,22 @@ impl Pager  {
     pub fn get_page_forced(&mut self, page_index:usize) -> Result<Page> {
        let new_page = self.fetch_page(page_index)?;
 
-        if let Ok(()) = self.cache.add_page(&new_page) {
-            return self.cache.get_page_cloned(page_index)
+        if let Ok(()) = self.cache.borrow_mut().add_page(&new_page) {
+            return self.cache.borrow_mut().get_page_cloned(page_index)
                 .ok_or_else(|| Error::Unknown("Failed to access new page from cache".to_string()))
-            
         }
         return Err(Error::Unknown("Failed to add new page to cache".to_string())); 
-
     }
+
+
+
+    // fixing this requires rewriting the whole thing with lifetimes and
+    // pub fn get_page_or_fail(&mut self, page_index:usize) -> Result<&Page> {
+    //    match self.cache.borrow_mut().get_page(page_index) {
+    //     Some(k) => Ok(k),
+    //     None => Err(Error::NotFound("Page not found in cache, use get_page_forced as a fallback".to_string()))
+    //    }
+    // }
 
     fn delete_page(&mut self, page: Page) -> Result<()> {
         let (file_name, offset) = self.page_index_map.get(&page.index).ok_or(Error::AccessError)?;
@@ -246,7 +255,7 @@ impl Pager  {
 
     // is there a more efficient way to do this?
     pub fn flush_all_pages(&mut self) -> Result<()> {
-        for (_, (page, _) ) in &self.cache.loaded_pages {
+        for (_, (page, _) ) in &self.cache.borrow().loaded_pages {
             self.flush_page(page)?;
         }
         Ok(())
