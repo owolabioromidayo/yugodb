@@ -56,16 +56,23 @@ mod tests {
     use super::*;
 
     //TODO: test insert relational row
+    //TODO: test one command, seems to err out in that scenario, just add a nil template?
 
     #[test]
     fn test_full_pipeline() {
+        // let mut tokenizer = Tokenizer::new(
+        //     "
+        // let x = dbs.test_db.test_table.limit(10);
+        // // let y = dbs.test_db2.tb2.offset(1).limit(10);
+        // // let z = x JOIN y ON id=id;
+        // // z.select() ;
+        // dbs.test_db.test_table.offset(0).limit(10);
+        // ",
+        // );
         let mut tokenizer = Tokenizer::new(
             "
-        let x = dbs.test_db.test_table.limit(10);  
-        let y = dbs.test_db2.tb2.offset(1).limit(10);
-        // let z = x JOIN y ON id=id;  
-        // z.select() ;
-        dbs.test_db.test_table.offset(0).limit(10);
+        let x = dbs.test_db.test_table.offset(0);  
+        x.limit(10);
         ",
         );
 

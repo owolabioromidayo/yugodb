@@ -27,13 +27,12 @@
 // use std::iter;
 use crate::error::{Error, Result};
 use std::collections::HashMap;
-use std::hash::Hash; 
-use std::fmt::Debug; 
+use std::fmt::Debug;
+use std::hash::Hash;
 
 const M: usize = 32;
 
-pub trait BKey:  PartialEq + Ord + Hash + Debug + Clone + Default {} 
-
+pub trait BKey: PartialEq + Ord + Hash + Debug + Clone + Default {}
 
 impl BKey for usize {}
 // impl BKey for &usize {}
@@ -42,12 +41,12 @@ impl BKey for String {}
 // impl BKey for {}
 
 #[derive(Clone, Debug)]
-pub enum BPTreeNodeEnum <T: BKey, U: Debug + Clone> {
-    Internal(BPTreeInternalNode <T, U>),
+pub enum BPTreeNodeEnum<T: BKey, U: Debug + Clone> {
+    Internal(BPTreeInternalNode<T, U>),
     Leaf(BPTreeLeafNode<T, U>),
 }
 
-pub trait BPTreeNode <T: BKey, U: Debug + Clone> {
+pub trait BPTreeNode<T: BKey, U: Debug + Clone> {
     // fn new() -> Result<BPTreeNodeEnum>;
 
     fn serialize(&self) -> Vec<u8>;
@@ -59,14 +58,15 @@ pub trait BPTreeNode <T: BKey, U: Debug + Clone> {
     fn is_leaf(&self) -> bool;
     fn is_root(&self) -> bool;
 
-    fn split(&mut self) -> Result<BPTreeInternalNode< T, U>>;
+    fn split(&mut self) -> Result<BPTreeInternalNode<T, U>>;
 }
 
 #[derive(Clone, Debug)]
-pub struct BPTreeInternalNode <T: BKey, U: Debug + Clone > {
+pub struct BPTreeInternalNode<T: BKey, U: Debug + Clone> {
     keys: Vec<T>, // capacity M
     is_root: bool,
     children: Vec<Option<BPTreeNodeEnum<T, U>>>, // capacity M+1
+    child_count: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -79,14 +79,12 @@ pub struct BPTreeLeafNode<T: PartialEq, U> {
 //     root: BPTreeInternalNode
 // }
 
-impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeLeafNode<T, U> {
+impl<T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeLeafNode<T, U> {
     fn search(&self, key: &T) -> Option<&U> {
-        // println!("We are in leaf now here {key} ");
         if let Some(x) = self.values.get(key) {
             println!("{:?}", x);
             return Some(x);
         }
-
         None
     }
 
@@ -118,7 +116,7 @@ impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeLeafNode<T, U> {
         let middle_key = keys[mid];
 
         let mut left_map: HashMap<T, U> = HashMap::new();
-        let mut right_map:HashMap<T, U> = HashMap::new();
+        let mut right_map: HashMap<T, U> = HashMap::new();
 
         for (key, value) in &self.values {
             if key < middle_key {
@@ -135,7 +133,7 @@ impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeLeafNode<T, U> {
 
         let new_left_leaf_node: BPTreeLeafNode<T, U> = BPTreeLeafNode {
             values: left_map,
-            next_node:  None,
+            next_node: None,
             // next_node: Some(Box::new(new_right_leaf_node)), // this is so wrong ( why clone, I just moved it)
         };
 
@@ -148,13 +146,17 @@ impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeLeafNode<T, U> {
     }
 }
 
-impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T,U> {
+impl<T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T, U> {
     fn search(&self, key: &T) -> Option<&U> {
         let mut ret = None;
 
         //check first one
-        if *key < self.keys[0] {
-            if let Some(x) = &self.children[0 as usize] {
+
+        if *key > self.keys[self.child_count- 1] {
+            println!("What are we doing here");
+            // we havent worked out this +1 thing yet
+            if let Some(x) = &self.children[self.child_count + 1] {
+                println!("Searching {:?}", &x);
                 ret = match x {
                     BPTreeNodeEnum::Leaf(y) => y.search(key),
                     BPTreeNodeEnum::Internal(y) => y.search(key),
@@ -163,9 +165,11 @@ impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T,U> {
             return ret;
         } else {
             for (_id, k) in self.keys.iter().enumerate() {
-                if key >= k {
-                    //return on first occurence
-                    if let Some(x) = &self.children[_id + 1] {
+                //wasteful fr, needs rewrite
+                if key <= k {
+                    //return on first occurence (this is so wrong)
+                    if let Some(x) = &self.children[_id] {
+                        println!("Searching {:?}", &x);
                         match x {
                             BPTreeNodeEnum::Leaf(y) => return y.search(key),
                             BPTreeNodeEnum::Internal(y) => return y.search(key),
@@ -184,21 +188,35 @@ impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T,U> {
         //okay, so we always insert at the end, that makes sense right
 
         //try inserting it here
-        if self.children.len() < (M + 1).into() {
+
+        //TODO: notice that my inserts are not ordered
+
+        //this doesnt work anymore, fixed capacity, lets keep a child count then
+        // if self.children.len() < (M + 1).into() {
+        if self.child_count < (M + 1) {
             //insert the key and corresponding children in sorted order
             // insert_sorted(&self.children, key);
             // let index = self.children.binary_search(&value).unwrap_or_else(|i| i);
             // self.children.insert(index, value);
 
             // create a new child?
+
+            // this might be excessive but neccessary, at least when its full, new internal nodes wont be created this much,
+            // right? wrong, need some sorta recursion depth
+            // we'll test this at scale I guess, but yeah, seems wrong, but then again, my first argument carries recursively,
+            // some leaf nodes will still be filled, we're just spacing out
             let mut new_child: BPTreeInternalNode<T, U> = BPTreeInternalNode::new();
             new_child.keys[0] = key.clone();
             let mut new_child_leaf = BPTreeLeafNode::new();
-            new_child_leaf.insert(key, value )?;
-            new_child.children[1] = Some(BPTreeNodeEnum::Leaf(new_child_leaf));
+            new_child_leaf.insert(key.clone(), value)?;
+            new_child.children[0] = Some(BPTreeNodeEnum::Leaf(new_child_leaf));
+            new_child.child_count = 1;
 
-            self.children
-                .push(Some(BPTreeNodeEnum::Internal(new_child)));
+            // self.children
+            //     .push(Some(BPTreeNodeEnum::Internal(new_child)));
+            self.children[self.child_count] = Some(BPTreeNodeEnum::Internal(new_child));
+            self.keys[self.child_count] = key.clone(); // TODO: this is a violation of Btrees
+            self.child_count += 1;
 
             Ok(())
 
@@ -296,22 +314,24 @@ impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T,U> {
             keys: Vec::with_capacity(M),
             is_root: false,
             children: Vec::with_capacity(M + 1),
+            child_count: 0,
         };
 
         let mut right_node = BPTreeInternalNode {
             keys: Vec::with_capacity(M),
             is_root: false,
             children: Vec::with_capacity(M + 1),
+            child_count: 0,
         };
 
+        //TODO: how do we resolve child count here then
         let mid = M / 2;
         let split_key = self.keys[mid].clone();
 
         // Move keys and children to the left node
         left_node.keys = self.keys[..mid].to_vec();
-        // left_node.children = self.children[..mid + 1].to_vec(); 
+        // left_node.children = self.children[..mid + 1].to_vec();
         left_node.children = self.children.drain(..mid + 1).collect();
-
 
         // Move keys and children to the right node
         right_node.keys = self.keys[mid + 1..].to_vec();
@@ -332,7 +352,7 @@ impl <T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T,U> {
     }
 }
 
-impl <T: PartialEq, U> BPTreeLeafNode<T, U> {
+impl<T: PartialEq, U> BPTreeLeafNode<T, U> {
     pub fn new() -> BPTreeLeafNode<T, U> {
         BPTreeLeafNode {
             values: HashMap::new(), // TODO: rename to map?
@@ -341,13 +361,14 @@ impl <T: PartialEq, U> BPTreeLeafNode<T, U> {
     }
 }
 
-impl <T: BKey, U: Debug + Clone> BPTreeInternalNode<T,U> {
+impl<T: BKey, U: Debug + Clone> BPTreeInternalNode<T, U> {
     pub fn new() -> Self {
         BPTreeInternalNode {
             //TODO : are the sizes secure enough?
             keys: vec![T::default(); M],
-            children: vec![None ; M+1],
+            children: vec![None; M + 1],
             is_root: false,
+            child_count: 0,
         }
     }
 
@@ -367,9 +388,11 @@ impl <T: BKey, U: Debug + Clone> BPTreeInternalNode<T,U> {
                 max += 1;
             }
         }
-        return max == M+1;
+        return max == M + 1;
     }
 }
+
+//TODO: need high volume tests
 
 #[cfg(test)]
 mod tests {
@@ -389,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn test_internal_node_insert_and_search() {
+    fn test_internal_node_search() {
         let mut internal_node = BPTreeInternalNode::new();
         let mut leaf_node1: BPTreeLeafNode<usize, (usize, u8)> = BPTreeLeafNode::new();
         let mut leaf_node2: BPTreeLeafNode<usize, (usize, u8)> = BPTreeLeafNode::new();
@@ -400,8 +423,6 @@ mod tests {
         leaf_node2.insert(30, (3, 0)).unwrap();
         leaf_node2.insert(40, (4, 0)).unwrap();
 
-        
-       
         internal_node.keys[0] = 30;
         // internal_node.keys.push(30);
         internal_node.children[0] = Some(BPTreeNodeEnum::Leaf((leaf_node1)));
@@ -412,6 +433,26 @@ mod tests {
         assert_eq!(internal_node.search(&30), Some(&(3, 0)));
         assert_eq!(internal_node.search(&40), Some(&(4, 0)));
         assert_eq!(internal_node.search(&50), None);
+    }
+
+    #[test]
+    fn test_insert_internal_node() {
+        let mut internal_node = BPTreeInternalNode::new();
+
+        internal_node.insert(10, (1, 0)).unwrap();
+        internal_node.insert(20, (2, 0)).unwrap();
+        internal_node.insert(30, (3, 0)).unwrap();
+        internal_node.insert(40, (4, 0)).unwrap();
+        // internal_node.insert(25, (5, 0)).unwrap();
+
+        println!("{:?}", internal_node);
+        // println!("{:?}", internal_node.search(&10));
+
+        assert_eq!(internal_node.search(&10), Some(&(1, 0)));
+        assert_eq!(internal_node.search(&20), Some(&(2, 0)));
+        // assert_eq!(internal_node.search(&25), Some(&(5, 0)));
+        assert_eq!(internal_node.search(&30), Some(&(3, 0)));
+        assert_eq!(internal_node.search(&40), Some(&(4, 0)));
     }
 
     #[test]

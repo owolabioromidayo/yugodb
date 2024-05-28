@@ -1,5 +1,7 @@
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::ops::Deref;
+use std::rc::Rc;
 
 use crate::database::*;
 use crate::dbms::*;
@@ -46,8 +48,20 @@ pub fn get_assign_vars(expr: &Expr) -> Result<Vec<String>> {
     }
 }
 
+#[derive(Clone)]
 pub struct IterClosure {
-    pub get_next_chunk: Box<dyn Fn(&mut DBMS) -> Result<Option<Records>>>,
+    //we need this func to mirror our get_next_chunk func thats why, so many things intertwined
+    pub get_next_chunk: Rc<dyn Fn(&mut DBMS, &RPredicate) -> Result<Option<Records>>>,
+    pub pred: RPredicate,
+}
+
+impl fmt::Debug for IterClosure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IterClosure")
+            .field("get_next_chunk", &"<closure>")
+            .field("pred", &self.pred)
+            .finish()
+    }
 }
 
 // maybe we are going to far with this?
@@ -63,7 +77,7 @@ pub struct Interpreter {
     pub ast: AST,
 }
 
-impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator>> for Interpreter {
+impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for Interpreter {
     fn visit_binary(&self, expr: &Binary) -> Result<Literal> {
         let mut left = self.evaluate_lower(&expr.left)?;
         let mut right = self.evaluate_lower(&expr.right)?;
@@ -322,7 +336,7 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator>> f
     // the main point of all these optimizations even, is to think about how much data should be pulled in
     // the first place, but this would only really help in like restricted ranges and columnar storage methods
 
-    fn visit_data_call(&self, expr: &DataCall) -> Result<RecordIterator> {
+    fn visit_data_call(&self, expr: &DataCall) -> Result<IterClosure> {
         // we need special support for system level prompts
 
         let mut db_name = String::new();
@@ -347,82 +361,61 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator>> f
             tok => {
                 // check if var
                 // we've not resolved vars having iterclosures and data calls still returning recorditerators
-                // match self.variables.get(tok) {
-                //     Some(k) => {
+                if let Ok(k) = self.visit_variable_token(&expr.attr.tokens[0]) {
+                    println!("We got a var closure!");
+                    // we want to generate our new iterclosure on top of this, and set the variable
 
-                //     }
-                // }
-                return Err(Error::Unknown(format!(
-                    "Unsupported datacall attr {}",
-                    &tokens[0]
-                )));
+                    // prob here is we dont know if this is an assignmnet operation or not, so we have to do the wasteful return,
+                    // which does not solve other problems (just make em do x = x.offset(10) I guess, that works)
+                    // redefs should update the map
+
+                    let mut pred = self.generate_predicate(&expr.methods, &expr.arguments)?;
+
+                    let mut k_static = Box::leak(Box::new(k.clone()));
+
+                    // this will happen outside, not here
+                    // k_static.pred.add(&pred);
+
+                    return Ok(IterClosure {
+                        // higher level predicate will be ignored, hunh, its just for mirroring sake anyways
+                        // isnt our whole thesis to algebraically join them, now we neglect em? nah
+                        get_next_chunk: Rc::new(|dbms, hpred| {
+                            ((*k_static).get_next_chunk)(dbms, &((*k_static).pred.add_ret(&hpred)))
+                        }),
+                        pred: pred,
+                    });
+                    // into this
+                } else {
+                    return Err(Error::Unknown(format!(
+                        "Unsupported datacall attr {}. You could be trying to ref a var that doesnt exist.",
+                        &tokens[0]
+                    )));
+                }
             }
         }
+
+        let mut pred = Box::leak(Box::new(
+            self.generate_predicate(&expr.methods, &expr.arguments)?,
+        ));
 
         //check the table
+        let mut y = RefCell::new(RecordIterator::new(DEFAULT_CHUNK_SIZE, db_name, table_name));
 
-        let mut pred = RPredicate::new();
+        // hack to help out with the closure lifetime issue
+        let mut y_static = Box::leak(Box::new(y));
 
-        for (method, args) in expr.methods.iter().zip(&expr.arguments) {
-            // resolve into lowers
-            let mut resolved_args: Vec<Literal> = Vec::new();
-            for arg in args {
-                match self.evaluate_lower(arg) {
-                    Ok(x) => resolved_args.push(x),
-                    Err(e) => return Err(e),
-                }
-            }
-
-            // still need to do the typechecking here
-            match method {
-                MethodType::Limit => {
-                    if resolved_args.len() != 1 {
-                        return Err(Error::TypeError(
-                            "Limit method requires 1 integer input ONLY.".to_string(),
-                        ));
-                    }
-                    match &resolved_args[0].value.value {
-                        ValueData::Number(x) => {
-                            pred.limit = Some(*x as usize);
-                        }
-                        _ => {
-                            return Err(Error::TypeError(
-                                "Limit method requires 1 INTEGER input only.".to_string(),
-                            ))
-                        }
-                    }
-                }
-                MethodType::Offset => {
-                    if resolved_args.len() != 1 {
-                        return Err(Error::TypeError(
-                            "Offset method requires 1 integer input ONLY.".to_string(),
-                        ));
-                    }
-                    match &resolved_args[0].value.value {
-                        ValueData::Number(x) => {
-                            pred.offset = Some(*x as usize);
-                        }
-                        _ => {
-                            return Err(Error::TypeError(
-                                "Offset method requires 1 INTEGER input only.".to_string(),
-                            ))
-                        }
-                    }
-                }
-                MethodType::Select => {}
-                _ => unimplemented!(),
-            }
-        }
-
-        let res = RecordIterator::new(DEFAULT_CHUNK_SIZE, pred, db_name, table_name);
-        return Ok(res);
+        Ok(IterClosure {
+            get_next_chunk: Rc::new(|dbms, hpred| {
+                ((*y_static).borrow_mut()).get_next_chunk(dbms, &pred.add_ret(&hpred))
+            }),
+            pred: pred.clone(),
+        })
     }
 
     fn visit_data_expr(&self, expr: &DataExpr) -> Result<IterClosure> {
         //expecting data_call JOIN data_call on id1=id2
         let left = RefCell::new(self.evaluate_call(&expr.left)?);
         let right = RefCell::new(self.evaluate_call(&expr.right)?);
-
         let join_vals = get_assign_vars(&expr.join_expr)?;
 
         println!(
@@ -444,9 +437,15 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator>> f
                 // also, we need the join predicate
 
                 let res = IterClosure {
-                    get_next_chunk: Box::new(move |mut dbms| {
-                        let mut l_chunk = (*left.borrow_mut()).get_next_chunk(&mut dbms)?;
-                        let r_chunk = (*right.borrow_mut()).get_next_chunk(&mut dbms)?;
+                    get_next_chunk: Rc::new(move |mut dbms, _| {
+                        let mut l_chunk = ((*left.borrow_mut()).get_next_chunk)(
+                            &mut dbms,
+                            &(*left.borrow()).pred,
+                        )?;
+                        let r_chunk = ((*right.borrow_mut()).get_next_chunk)(
+                            &mut dbms,
+                            &(*right.borrow()).pred,
+                        )?;
 
                         //check the nulls
                         if r_chunk.is_none() {
@@ -509,6 +508,7 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<RecordIterator>> f
                         }
                         return Ok(None);
                     }),
+                    pred: RPredicate::new(),
                 };
                 Ok(res)
             }
@@ -547,6 +547,67 @@ impl Interpreter {
             variables: HashMap::new(),
         }
     }
+
+    pub fn generate_predicate(
+        &self,
+        methods: &Vec<MethodType>,
+        arguments: &Vec<Vec<Expr>>,
+    ) -> Result<RPredicate> {
+        let mut pred = RPredicate::new();
+
+        for (method, args) in methods.iter().zip(arguments) {
+            // resolve into lowers
+            let mut resolved_args: Vec<Literal> = Vec::new();
+            for arg in args {
+                match self.evaluate_lower(arg) {
+                    Ok(x) => resolved_args.push(x),
+                    Err(e) => return Err(e),
+                }
+            }
+
+            // still need to do the typechecking here
+            match method {
+                MethodType::Limit => {
+                    if resolved_args.len() != 1 {
+                        return Err(Error::TypeError(
+                            "Limit method requires 1 integer input ONLY.".to_string(),
+                        ));
+                    }
+                    match &resolved_args[0].value.value {
+                        ValueData::Number(x) => {
+                            pred.limit = Some(*x as usize);
+                        }
+                        _ => {
+                            return Err(Error::TypeError(
+                                "Limit method requires 1 INTEGER input only.".to_string(),
+                            ))
+                        }
+                    }
+                }
+                MethodType::Offset => {
+                    if resolved_args.len() != 1 {
+                        return Err(Error::TypeError(
+                            "Offset method requires 1 integer input ONLY.".to_string(),
+                        ));
+                    }
+                    match &resolved_args[0].value.value {
+                        ValueData::Number(x) => {
+                            pred.offset = Some(*x as usize);
+                        }
+                        _ => {
+                            return Err(Error::TypeError(
+                                "Offset method requires 1 INTEGER input only.".to_string(),
+                            ))
+                        }
+                    }
+                }
+                MethodType::Select => {}
+                _ => unimplemented!(),
+            }
+        }
+        Ok(pred)
+    }
+
     // makes more sense to get a clone we can modify for attrs and elsewhere also
     fn visit_variable_token(&self, token: &Token) -> Result<IterClosure> {
         //TODO: a variable should be guaranteed some literal ; its just unwrap for now
@@ -585,16 +646,7 @@ impl Interpreter {
             Expr::Variable(expr) => self.visit_variable(expr),
             // Expr::Attribute(expr) => self.visit_attribute(expr),
             Expr::Assign(expr) => self.visit_assign(expr),
-            Expr::DataCall(expr) => {
-                let y = RefCell::new(self.visit_data_call(expr)?);
-
-                // hack to help out with the closure lifetime issue
-                let y_static = Box::leak(Box::new(y));
-
-                Ok(IterClosure {
-                    get_next_chunk: Box::new(|dbms| (*y_static.borrow_mut()).get_next_chunk(dbms)),
-                })
-            }
+            Expr::DataCall(expr) => self.visit_data_call(expr),
             Expr::DataExpr(expr) => self.visit_data_expr(expr),
             _ => Err(Error::TypeError(
                 "Expr type not supported in eval higher func".to_string(),
@@ -608,11 +660,11 @@ impl Interpreter {
 
     // }
 
-    pub fn evaluate_call(&self, expr: &Expr) -> Result<RecordIterator> {
+    pub fn evaluate_call(&self, expr: &Expr) -> Result<IterClosure> {
         let res = match &expr {
             Expr::DataCall(expr) => self.visit_data_call(expr),
             _ => Err(Error::TypeError(
-                "Expr type not supported in eval lower func".to_string(),
+                "Expr type not supported in eval datacall func".to_string(),
             )),
         };
 
@@ -693,9 +745,10 @@ impl Interpreter {
         if let Some(x) = self.execute_processed_stmt(&self.ast.root, true) {
             let iter_closure = x?;
             let mut records: Records;
+            let empty_pred = RPredicate::new();
 
             // get initial chunk, for type matching
-            match (iter_closure.get_next_chunk)(dbms)? {
+            match (iter_closure.get_next_chunk)(dbms, &empty_pred)? {
                 Some(chunk) => {
                     println!("We got a chunk: {:?}", &chunk);
                     records = chunk;
@@ -704,11 +757,14 @@ impl Interpreter {
             }
 
             loop {
-                match (iter_closure.get_next_chunk)(dbms)? {
+                match (iter_closure.get_next_chunk)(dbms, &empty_pred)? {
                     Some(chunk) => {
                         println!("We got a chunk: {:?}", &chunk);
                         match chunk {
                             Records::DocumentRows(x) => {
+                                if (x.len() == 0) {
+                                    break;
+                                }
                                 match records {
                                     Records::DocumentRows(ref mut y) => {
                                         y.extend(x);
@@ -717,6 +773,9 @@ impl Interpreter {
                                 }
                             }
                             Records::RelationalRows(x) => {
+                                if (x.len() == 0) {
+                                    break;
+                                }
                                 match records {
                                     Records::RelationalRows(ref mut y) => {
                                         y.extend(x);
@@ -725,6 +784,9 @@ impl Interpreter {
                                 }
                             }
                             Records::DocumentColumns(x) => {
+                                if (x.len() == 0) {
+                                    break;
+                                }
                                 match records {
                                     Records::DocumentColumns(ref mut y) => {
                                         y.extend(x);
@@ -733,6 +795,7 @@ impl Interpreter {
                                 }
                             }
                         }
+                        
                     }
                     None => break,
                 }
