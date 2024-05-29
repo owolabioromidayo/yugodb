@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use crate::record::DocumentRecord;
 use crate::table::*;
 use crate::error::*;
+use std::rc::Rc;
+use std::cell::RefCell;
 use crate::record::*;
 use crate::pager::Pager;
 
@@ -12,7 +14,7 @@ use crate::pager::Pager;
 pub struct Database {
     pub name: String,
     pub tables: HashMap<String, Table>,
-    pub pager: Pager 
+    pub pager: Rc<RefCell<Pager>> 
 }
 
 // only exists to manage the tables, no execution happens here
@@ -29,7 +31,7 @@ impl Database {
         Self{
             name: name.clone(), 
             tables: HashMap::new(),
-            pager: Pager::new(name)
+            pager: Rc::new(RefCell::new(Pager::new(name)))
         }
     }
     pub fn create_table(){}
@@ -40,23 +42,37 @@ impl Database {
         self.tables.get(table_name)
     }
 
-    pub fn get_pager_mut(&mut self) -> &mut Pager { 
-        return  &mut self.pager
-    }
+    // pub fn get_pager_mut(&mut self) -> &mut Pager { 
+    //     return  &mut self.pager
+    // }
     pub fn delete_table(){}    
 
     pub fn insert_document_row(&mut self, table_name: &String, row:DocumentRecord) -> Result<()> {
        match self.tables.get_mut(table_name) {
-        Some(x) => x.insert_document_row(&mut self.pager, row),
+
+        Some(x) =>  {
+            match Rc::clone(&self.pager).try_borrow_mut() {
+            Ok(mut cache_mut) =>  x.insert_document_row(&mut cache_mut, row),
+            Err(_) => Err(Error::Unknown("Failed to borrow pager mutably".to_string())),
+
+            }   
+        },
         None => Err(Error::Unknown("Table not found".to_string())), 
        }
     }
 
     pub fn get_rows_in_range(&mut self, table_name: &String, start:usize, end:usize) -> Result<Records> {
        match self.tables.get_mut(table_name) {
-        Some(x) => x.get_rows_in_range(&mut self.pager, start, end),
+
+        Some(x) =>  {
+            match Rc::clone(&self.pager).try_borrow_mut() {
+            Ok(mut cache_mut) =>  x.get_rows_in_range(&mut cache_mut , start, end),
+            Err(_) => Err(Error::Unknown("Failed to borrow pager mutably".to_string())),
+            }   
+        },
         None => Err(Error::Unknown("Table not found".to_string())), 
        }
+
     }
 
 }

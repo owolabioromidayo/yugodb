@@ -1,4 +1,9 @@
+use core::borrow;
+use std::borrow::Borrow;
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::btree::*;
 use crate::record::*;
@@ -57,7 +62,7 @@ impl Table {
 
     pub fn insert_relational_row(
         &mut self,
-        pager: &mut Pager,
+        pager: Rc<RefCell<Pager>>,
         row: RelationalRecord,
     ) -> Result<bool> {
         // unimplemented!()
@@ -66,8 +71,11 @@ impl Table {
             _ => panic!("Unsupported schema type for relational record"),
         };
 
-        let mut curr_page = pager.get_page_forced(self.curr_page_id)?;
-        let mut document_page = match RelationalRecordPage::deserialize(&curr_page.bytes, &schema) {
+        let mut curr_page = ((*pager).borrow_mut().get_page_or_force(self.curr_page_id)?);
+        let mut document_page = match RelationalRecordPage::deserialize(
+            &(*curr_page).borrow_mut().read_all(),
+            &schema,
+        ) {
             Ok(page) => page,
             Err(_) => RelationalRecordPage::new(),
         };
@@ -110,7 +118,7 @@ impl Table {
     pub fn scan_page(&self, page: &Page) -> usize {
         //check for null bytes starting from the right
         let mut count = 0;
-        for i in page.bytes.iter().rev() {
+        for i in page.read_all().iter().rev() {
             if *i == 0u8 {
                 count += 1 as usize;
             } else {
@@ -122,11 +130,13 @@ impl Table {
 
     pub fn insert_document_row(&mut self, pager: &mut Pager, row: DocumentRecord) -> Result<()> {
         let id = row.id.unwrap().clone();
-        let mut curr_page = pager.get_page_forced(self.curr_page_id)?;
-        let mut document_page = match DocumentRecordPage::deserialize(&curr_page.bytes) {
-            Ok(page) => page,
-            Err(_) => DocumentRecordPage::new(),
-        };
+        let mut curr_page = ((*pager).borrow_mut().get_page_or_force(self.curr_page_id)?);
+        let mut document_page =
+            match DocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all())
+            {
+                Ok(page) => page,
+                Err(_) => DocumentRecordPage::new(),
+            };
         let new_data = row.serialize()?;
         if new_data.len() > PAGE_SIZE_BYTES {
             return Err(Error::Unknown(
@@ -139,7 +149,7 @@ impl Table {
             let mut new_page = pager.create_new_page()?;
             let mut new_document_page = DocumentRecordPage::new();
             new_document_page.add_record(row);
-            new_page.bytes = bson::to_vec(&new_document_page)?;
+            new_page.write_all(bson::to_vec(&new_document_page)?);
             self.curr_page_id += 1;
             self.page_index.insert(new_page.index, self.curr_page_id);
             self.default_index
@@ -151,13 +161,16 @@ impl Table {
         } else {
             // Append the record to the current page
             document_page.add_record(row);
-            curr_page.bytes = bson::to_vec(&document_page)?;
+            (*curr_page)
+               
+                .borrow_mut()
+                .write_all(bson::to_vec(&document_page)?);
             self.default_index
                 .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0))
                 .unwrap(); // TODO: can offset be useful here?
                            // , no since we are just doing it on page creation
             println!("index after insertion{:?}", &self.default_index);
-            pager.flush_page(&curr_page)?;
+            pager.flush_page(&(*curr_page).borrow_mut())?;
             // self.curr_page_id
         }
         Ok(())
@@ -186,12 +199,13 @@ impl Table {
             if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
                 println!("Record found");
                 // Fetch the page from the pager
-                let page = pager.get_page_forced(*page_id)?;
+                let page = pager.get_page_or_force(*page_id)?;
 
-                let document_page = match DocumentRecordPage::deserialize(&page.bytes) {
-                    Ok(page) => page,
-                    Err(_) => continue, // Skip if deser fails ? Do we panic instead?
-                };
+                let document_page =
+                    match DocumentRecordPage::deserialize(&(*page).borrow_mut().read_all() ) {
+                        Ok(page) => page,
+                        Err(_) => continue, // Skip if deser fails ? Do we panic instead?
+                    };
 
                 //TODO: so the offset value should be the index in the page vec?
                 // how about we just deserialize that portion then?
@@ -367,10 +381,11 @@ mod tests {
         let result2 = table.insert_document_row(&mut pager, record2.clone());
         assert!(result2.is_ok());
 
-        let page = pager.get_page_forced(table.curr_page_id).unwrap();
+        let page = pager.get_page_or_force(table.curr_page_id).unwrap();
 
         // Check if the records are inserted correctly
-        let document_page = DocumentRecordPage::deserialize(&page.bytes).unwrap();
+        let document_page =
+            DocumentRecordPage::deserialize(&((*page).borrow_mut().read_all())).unwrap();
         assert_eq!(document_page.records.len(), 2);
         assert_eq!(&document_page.records[0], &record1);
         assert_eq!(&document_page.records[1], &record2);

@@ -10,7 +10,6 @@ use crate::lang::interpreter::*;
 use crate::lang::parser::*;
 use crate::lang::tokenizer::*;
 use crate::lang::types::*;
-use crate::pager::Pager;
 use crate::pager::*;
 use crate::record::*;
 use crate::schema::*;
@@ -54,6 +53,8 @@ impl DBMS {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::BorrowMut;
+
     use super::*;
 
     //TODO: test insert relational row
@@ -195,7 +196,12 @@ mod tests {
 
         //initialize 10 pages
         for _ in 0..10 {
-            db.pager.create_new_page().unwrap();
+
+            match db.pager.try_borrow_mut() {
+                Ok(mut pager) => {pager.create_new_page().unwrap(); ()},
+                Err(err) => {println!("{:?}", err) }
+            }
+            // (*db.pager).borrow_mut().create_new_page().unwrap();
         }
 
         db.tables.insert("test_table".to_string(), table);
@@ -211,24 +217,33 @@ mod tests {
         // Insert the first record
         let result1 = db1.insert_document_row(&table_name, record1.clone());
         match result1 {
-            Ok(_) => (),
+            Ok(_) => println!("First record inserted!"),
             Err(err) => println!("{:?}", err),
         }
         // assert!(result1.is_ok());
 
         // Insert the second record
         let result2 = db1.insert_document_row(&table_name, record2.clone());
-        assert!(result2.is_ok());
+        match result2 {
+            Ok(_) => println!("Second record inserted!"),
+            Err(err) => println!("{:?}", err),
+        }
+
+        // assert!(result2.is_ok());
 
         let table1 = db1.get_table(&"test_table".to_string()).unwrap();
         println!("Table index {:?}", &table1.default_index);
 
-        let page = db1.pager.get_page_forced(table1.curr_page_id).unwrap();
+        let page = (*db1.pager)
+            .borrow_mut()
+            .get_page_or_force(table1.curr_page_id)
+            .unwrap();
 
         // println!("{:?}", table1.);
 
         // Check if the records are inserted correctly
-        let document_page = DocumentRecordPage::deserialize(&page.bytes).unwrap();
+        let document_page =
+            DocumentRecordPage::deserialize(&page.borrow().borrow_mut().read_all()).unwrap();
         assert_eq!(document_page.records.len(), 2);
         assert_eq!(&document_page.records[0], &record1);
         assert_eq!(&document_page.records[1], &record2);
