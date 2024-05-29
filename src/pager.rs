@@ -2,7 +2,9 @@ use crate::error::{Error, Result};
 use parking_lot::RwLock;
 use std::borrow::BorrowMut;
 use std::cell::RefCell;
+use std::cell::RefMut;
 use std::collections::HashMap;
+// use std::error::Error;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::SeekFrom;
@@ -229,30 +231,34 @@ impl Pager {
 
     //TODO: make fetching from page cache more viable than this
 
-    pub fn get_page_forced(&self, page_index: usize) -> Result<Rc<RefCell<Page>>> {
+    fn get_page_forced(
+        &self,
+        page_index: usize,
+        mut cache: RefMut<PageCache>,
+    ) -> Result<Rc<RefCell<Page>>> {
         let new_page = self.fetch_page(page_index)?;
 
         // let cache = Rc::clone(&self.cache);
         // let mut cache_mut = (*cache).borrow_mut();
 
-        match Rc::clone(&self.cache).try_borrow_mut() {
-            Ok(mut cache) => {
-                if let Ok(()) = cache.add_page(new_page) {
-                    if let Some(page) = cache.get_page(page_index) {
-                        Ok(Rc::clone(page))
-                    } else {
-                        Err(Error::Unknown(
-                            "Failed to access new page from cache".to_string(),
-                        ))
-                    }
-                } else {
-                    Err(Error::Unknown(
-                        "Failed to add new page to cache".to_string(),
-                    ))
-                }
+        // match Rc::clone(&self.cache).try_borrow_mut() {
+        //     Ok(mut cache) => {
+        if let Ok(()) = cache.add_page(new_page) {
+            if let Some(page) = cache.get_page(page_index) {
+                Ok(Rc::clone(page))
+            } else {
+                Err(Error::Unknown(
+                    "Failed to access new page from cache".to_string(),
+                ))
             }
-            Err(_) => Err(Error::Unknown("Failed to borrow cache mutably".to_string())),
+        } else {
+            Err(Error::Unknown(
+                "Failed to add new page to cache".to_string(),
+            ))
         }
+        //     }
+        //     Err(e) => panic!("{:?}", e.to_string()),
+        // }
 
         // if let Ok(()) = cache_mut.add_page(new_page) {
         //     return match cache_mut.get_page(page_index) {
@@ -268,13 +274,14 @@ impl Pager {
     }
 
     pub fn get_page_or_force(&self, page_index: usize) -> Result<Rc<RefCell<Page>>> {
-
         match Rc::clone(&self.cache).try_borrow_mut() {
             Ok(mut cache_mut) => match cache_mut.get_page(page_index) {
                 Some(k) => Ok(Rc::clone(k)),
-                None => self.get_page_forced(page_index),
+                None => self.get_page_forced(page_index, cache_mut),
             },
-            Err(_) => Err(Error::Unknown("Failed to borrow cache mutably".to_string())),
+            Err(_) => Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            )),
         }
     }
 
