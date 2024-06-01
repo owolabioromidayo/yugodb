@@ -62,17 +62,18 @@ impl Table {
 
     pub fn insert_relational_row(
         &mut self,
-        pager: Rc<RefCell<Pager>>,
+        pager: &mut Pager,
         row: RelationalRecord,
-    ) -> Result<bool> {
+    ) -> Result<()> {
+        let id = row.id.unwrap().clone();
         // unimplemented!()
         let schema = match &self.schema {
             Schema::Relational(x) => x,
             _ => panic!("Unsupported schema type for relational record"),
         };
 
-        let mut curr_page = ((*pager).borrow_mut().get_page_or_force(self.curr_page_id)?);
-        let mut document_page = match RelationalRecordPage::deserialize(
+        let curr_page = ((*pager).borrow_mut().get_page_or_force(self.curr_page_id)?);
+        let mut relational_page= match RelationalRecordPage::deserialize(
             &(*curr_page).borrow_mut().read_all(),
             &schema,
         ) {
@@ -88,26 +89,30 @@ impl Table {
         }
 
         //TODO
-        // if bson::to_vec(&document_page)?.len() + new_data.len() > PAGE_SIZE_BYTES {
-        //     // Create a new page if adding the new record exceeds the page size
-        //     let mut new_page: Page = pager.create_new_page()?;
-        //     let mut new_document_page = RelationalRecordPage::new();
-        //     new_document_page.add_record(row);
-        //     new_page.bytes = bson::to_vec(&new_document_page)?;
-        //     self.curr_page_id += 1;
-        //     self.page_index.insert(new_page.index, self.curr_page_id);
-        //     self.default_index
-        //         .insert(self.curr_row_id, self.curr_page_id, 0); // TODO: can offset be useful here?
-        //                                                          // , no since we are just doing it on page creation
-        //     pager.flush_page(&new_page)?;
-        // } else {
-        //     // Append the record to the current page
-        //     document_page.add_record(row);
-        //     curr_page.bytes = bson::to_vec(&document_page)?;
-        //     pager.flush_page(&curr_page)?;
-        //     // self.curr_page_id
-        // }
-        Ok(true)
+        if relational_page.serialize(&schema).len() + new_data.len() > PAGE_SIZE_BYTES {
+            // Create a new page if adding the new record exceeds the page size
+            let mut new_page: Page = pager.create_new_page()?;
+            let mut new_relational_page = RelationalRecordPage::new();
+            new_relational_page.add_record(row);
+            new_page.write_all(new_relational_page.serialize(schema));
+            self.curr_page_id += 1;
+            self.page_index.insert(new_page.index, self.curr_page_id);
+            self.default_index
+                .insert(id, (self.curr_page_id, 0, 0))?;
+
+            pager.flush_page(&new_page)?;
+        } else {
+            // Append the record to the current page
+            relational_page.add_record(row);
+            // how are we enforcing byte lens and all here? need oto clean the rest of the page
+            //do it at the page writing level
+            (*curr_page)
+                .borrow_mut()
+                .write_all(relational_page.serialize(&schema));
+
+            pager.flush_page(&(*curr_page).borrow_mut())?;
+        }
+        Ok(())
     }
 
     //TODO, ser / deser of different page variants might actually make things easier, not as low level maybe
@@ -129,6 +134,8 @@ impl Table {
     }
 
     pub fn insert_document_row(&mut self, pager: &mut Pager, row: DocumentRecord) -> Result<()> {
+        //TODO: the table should check whether its a document table  or not
+
         let id = row.id.unwrap().clone();
         let mut curr_page = ((*pager).borrow_mut().get_page_or_force(self.curr_page_id)?);
         let mut document_page =
@@ -153,9 +160,8 @@ impl Table {
             self.curr_page_id += 1;
             self.page_index.insert(new_page.index, self.curr_page_id);
             self.default_index
-                .insert(id, (self.curr_page_id, 0, 0))
-                .unwrap(); // TODO: can offset be useful here?
-                           // , no since we are just doing it on page creation
+                .insert(id, (self.curr_page_id, 0, 0))?;
+            
             println!("Index after insertion full: {:?}", &self.default_index);
             pager.flush_page(&new_page)?;
         } else {

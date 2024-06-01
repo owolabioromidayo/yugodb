@@ -79,27 +79,22 @@ impl DocumentRecord {
         return self.fields.get(key);
     }
 
-
     pub fn get_field_as_relational(&self, key: &str) -> Option<RelationalValue> {
         if let a = self.fields.get(key).unwrap() {
-
             //TODO: is this all we really want?
             return match a {
-                DocumentValue::Null =>  Some(RelationalValue::Null),
+                DocumentValue::Null => Some(RelationalValue::Null),
                 DocumentValue::Boolean(x) => Some(RelationalValue::Boolean(x.clone())),
-                DocumentValue::Number(x ) => Some(RelationalValue::Number(x.clone())),
-                DocumentValue::Numeric(x ) => Some(RelationalValue::Numeric(x.clone())),
+                DocumentValue::Number(x) => Some(RelationalValue::Number(x.clone())),
+                DocumentValue::Numeric(x) => Some(RelationalValue::Numeric(x.clone())),
                 DocumentValue::String(x) => Some(RelationalValue::String(x.clone())),
-                DocumentValue::Array(x ) => None,
+                DocumentValue::Array(x) => None,
                 DocumentValue::Object(x) => None,
-            }
-
+            };
         }
 
         None
-
     }
-
 
     pub fn remove_field(&mut self, key: &str) {
         self.fields.remove(key);
@@ -130,10 +125,9 @@ impl DocumentRecord {
     }
 }
 
-
 impl DocumentRecordPage {
     pub fn new() -> Self {
-        Self{
+        Self {
             records: Vec::new(),
         }
     }
@@ -171,12 +165,12 @@ impl DocumentRecordPage {
 
 // RELATIONAL ROW RECORDS
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RelationalRecordPage {
     pub records: Vec<RelationalRecord>, // metadata
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RelationalRecord {
     pub id: Option<usize>, // is usize large enough?
     pub fields: HashMap<String, RelationalValue>,
@@ -200,10 +194,9 @@ impl RelationalValue {
             RelationalValue::Number(x) => DocumentValue::Number(x.clone()),
             RelationalValue::Numeric(x) => DocumentValue::Numeric(x.clone()),
             RelationalValue::String(x) => DocumentValue::String(x.clone()),
-         }
+        }
     }
 }
-
 
 impl RelationalType {
     // in bytes
@@ -253,7 +246,7 @@ impl RelationalRecord {
     }
 
     pub fn get_field(&self, key: &str) -> Option<&RelationalValue> {
-        return self.fields.get(key)
+        return self.fields.get(key);
     }
 
     pub fn remove_field(&mut self, key: &str) {
@@ -275,27 +268,45 @@ impl RelationalRecord {
             } else {
                 match dtype {
                     RelationalType::Boolean => {
-                        let val = bytes[offset] != 0;
-                        offset += 1;
-                        RelationalValue::Boolean(val)
+                        if offset < bytes.len() {
+                            let val = bytes[offset] != 0;
+                            offset += 1;
+                            RelationalValue::Boolean(val)
+                        } else {
+                            return Err(Error::Unknown("Deserialization error on boolean field.".to_string()))
+                        }
                     }
                     RelationalType::Number => {
-                        let val = f64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
-                        offset += 8;
-                        RelationalValue::Number(val)
+                        // so unsafe indexing is still a thing
+                        if offset +  8 < bytes.len() {
+                            let val = f64::from_le_bytes(bytes[offset..offset + 8].try_into()?);
+                            offset += 8;
+                            RelationalValue::Number(val)
+                        } else {
+                            return Err(Error::Unknown("Deserialization error on Numeric field.".to_string()))
+                        }
                     }
                     RelationalType::Numeric => {
-                        let val =
-                            Decimal::deserialize(bytes[offset..offset + 16].try_into().unwrap());
-                        offset += 16;
-                        RelationalValue::Numeric(val)
+                        if offset + 16 < bytes.len() {
+                            let val =
+                                Decimal::deserialize(bytes[offset..offset + 16].try_into()?);
+                            offset += 16;
+                            RelationalValue::Numeric(val)
+                        } else {
+                            return Err(Error::Unknown("Deserialization error on Numeric field.".to_string()))
+                        }
                     }
                     RelationalType::String(len) => {
-                        let val = String::from_utf8_lossy(&bytes[offset..offset + len])
-                            .trim_end_matches('\0')
-                            .to_string();
-                        offset += len;
-                        RelationalValue::String(val)
+
+                        if offset + len < bytes.len() {
+                            let val = String::from_utf8_lossy(&bytes[offset..offset + len])
+                                .trim_end_matches('\0')
+                                .to_string();
+                            offset += len;
+                            RelationalValue::String(val)
+                        } else {
+                            return Err(Error::Unknown("Deserialization error on boolean field.".to_string()))
+                        }
                     }
                 }
             };
@@ -322,7 +333,6 @@ impl RelationalRecord {
                 // (RelationalValue::Null, RelationalType::String(len), true) => {
                 //     bytes.extend_from_slice(&vec![0; *len])
                 // }
-
                 (RelationalValue::Boolean(val), RelationalType::Boolean, _) => {
                     bytes.push(*val as u8)
                 }
@@ -376,17 +386,22 @@ impl RelationalRecordPage {
             bytes.extend_from_slice(&record.serialize(schema));
         }
         bytes
-        //ENFORCING THE SIZE OF THIS WILL BE DONE ELSEWHERE
+        //ENFORCING THE SIZE OF THIS WILL BE DONE ELSEWHERE, NEED TO PAD WITH ZEROES
     }
 
+    //TODO: i need more information in the page to keep track of how many records are actually there
     pub fn deserialize(bytes: &Vec<u8>, schema: &RelationalSchema) -> Result<Self> {
+        println!("Bytes given {:?}", bytes.len());
         let mut records = Vec::new();
+        let shift_amount = get_byte_size(&schema); 
         let mut offset = 0;
         while offset < bytes.len() {
-            let record = RelationalRecord::deserialize(&bytes[offset..], schema)?;
-            records.push(record);
-
-            offset += get_byte_size(&schema);
+            match RelationalRecord::deserialize(&bytes[offset..], schema) {
+                Ok(x) => records.push(x),
+                Err(x) => return Ok(Self { records }),
+            }
+            //TODO, we need to have a better way of handling record fetch failures
+            offset += shift_amount;
         }
         Ok(Self { records })
     }
@@ -396,15 +411,13 @@ impl RelationalRecordPage {
 
 // START OF COLUMNAR STUFF
 
-
 //TODO: feels repetitive, but then, there are some key differences
 // what if I instead chose to make different columnar tables from higher up? seems about the same
 // while that is nice, this still leaves room to be more efficient ( just by removing the row abstraction)
 
 //maybe there is some stuff I can abstract away?
 
-
-//TODO: no tests but fairly straightforward, need to think about higher level abstractions 
+//TODO: no tests but fairly straightforward, need to think about higher level abstractions
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ColumnarDocumentRecord {
@@ -414,7 +427,7 @@ pub struct ColumnarDocumentRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ColumnarDocumentRecordPage{
+pub struct ColumnarDocumentRecordPage {
     pub records: Vec<ColumnarDocumentRecord>,
 }
 
@@ -464,7 +477,6 @@ impl ColumnarDocumentRecord {
     }
 }
 
-
 impl ColumnarDocumentRecordPage {
     pub fn new() -> Self {
         Self {
@@ -503,11 +515,9 @@ impl ColumnarDocumentRecordPage {
     }
 }
 
-
 // COLUMNAR RELATIONAL RECORDS
 
 // all the schema here will consist of is a single value
-
 
 #[derive(Debug, Clone)]
 pub struct ColumnarRelationalRecordPage {
@@ -516,23 +526,22 @@ pub struct ColumnarRelationalRecordPage {
 
 #[derive(Debug, Clone)]
 pub struct ColumnarRelationalRecord {
-    id: Option<usize>, 
+    id: Option<usize>,
     value: RelationalValue,
 }
-
 
 impl ColumnarRelationalRecord {
     pub fn new() -> Self {
         Self {
             id: None,
-            value: RelationalValue::Null,  
+            value: RelationalValue::Null,
         }
     }
 
     pub fn with_id(id: usize) -> Self {
         Self {
             id: Some(id),
-            value: RelationalValue::Null,  
+            value: RelationalValue::Null,
         }
     }
 
@@ -542,7 +551,7 @@ impl ColumnarRelationalRecord {
     }
 
     pub fn get_id(&self) -> Option<usize> {
-        self.id.clone() 
+        self.id.clone()
     }
 
     pub fn set_value(&mut self, value: RelationalValue) {
@@ -552,7 +561,6 @@ impl ColumnarRelationalRecord {
     pub fn get_value(&self, key: &str) -> &RelationalValue {
         &self.value
     }
-
 
     //TODO: finish this up on relationalrecord first, before I apply here
 
@@ -567,7 +575,7 @@ impl ColumnarRelationalRecord {
 
 impl ColumnarRelationalRecordPage {
     pub fn new() -> Self {
-        Self{
+        Self {
             records: Vec::new(),
         }
     }
@@ -588,8 +596,7 @@ impl ColumnarRelationalRecordPage {
         self.records.clear();
     }
 
-
-    // not implemeneted for now    
+    // not implemeneted for now
     pub fn serialize(&self, schema: &RelationalSchema) -> Vec<u8> {
         let mut bytes = Vec::new();
         for record in &self.records {
@@ -611,9 +618,6 @@ impl ColumnarRelationalRecordPage {
         Ok(Self { records })
     }
 }
-
-
-
 
 #[cfg(test)]
 mod tests {

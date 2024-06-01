@@ -1,3 +1,22 @@
+use std::convert::Infallible;
+use std::array::TryFromSliceError;
+// use std::ops::Try;
+trait FromResidual<R> {
+    fn from_residual(residual: R) -> Self;
+}
+
+impl FromResidual<Result<Infallible>> for Error
+{
+    fn from_residual(residual: Result<Infallible>) -> Self {
+        match residual {
+            Err(e) => Error::from(e),
+            Ok(_) => unreachable!("Infallible can never be constructed"),
+        }
+    }
+}
+
+
+
 #[derive(Debug)]
 pub enum Error{
     PageError,
@@ -12,6 +31,7 @@ pub enum Error{
     BsonError(bson::ser::Error),
     BsonDeserializationError(bson::de::Error), 
 }
+
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -41,6 +61,14 @@ impl From<bson::de::Error> for Error {
     }
 }
 
+
+impl From<TryFromSliceError> for Error {
+    fn from(err: TryFromSliceError) -> Self {
+        Error::Unknown(format!("TryFromSliceError: {}", err))
+    }
+}
+
+// 
 
 
 impl std::fmt::Display for Error {

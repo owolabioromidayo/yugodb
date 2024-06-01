@@ -61,6 +61,20 @@ impl Database {
        }
     }
 
+    pub fn insert_relational_row(&mut self, table_name: &String, row:RelationalRecord) -> Result<()> {
+       match self.tables.get_mut(table_name) {
+
+        Some(x) =>  {
+            match Rc::clone(&self.pager).try_borrow_mut() {
+            Ok(mut cache_mut) =>  x.insert_relational_row(&mut cache_mut, row),
+            Err(_) => Err(Error::Unknown("Failed to borrow pager mutably".to_string())),
+
+            }   
+        },
+        None => Err(Error::Unknown("Table not found".to_string())), 
+       }
+    }
+
     pub fn get_rows_in_range(&mut self, table_name: &String, start:usize, end:usize) -> Result<Records> {
        match self.tables.get_mut(table_name) {
 

@@ -92,8 +92,19 @@ impl Page {
         *self.dirty.write() = true;
     }
 
-    pub fn write_all(&self, data: Vec<u8>) {
+    pub fn clear(&mut self) {
+        let mut bytes = self.bytes.write();
+        bytes[0..PAGE_SIZE_BYTES].fill(0 as u8); 
+        *self.dirty.write() = true;
+    }
+
+
+    pub fn write_all(&self, mut data: Vec<u8>) {
         //bytes should maintain the lock till the end of this code, so bytes and dirty work together fine
+        if data.len() < PAGE_SIZE_BYTES {
+            data.resize(PAGE_SIZE_BYTES, 0);
+        }
+
         *self.bytes.write() = data;
         *self.dirty.write() = true;
     }

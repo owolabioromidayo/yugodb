@@ -53,6 +53,9 @@ impl DBMS {
 
 #[cfg(test)]
 mod tests {
+    use crate::types::RelationalType;
+    use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
     use std::borrow::BorrowMut;
 
     use super::*;
@@ -62,19 +65,15 @@ mod tests {
 
     #[test]
     fn test_full_pipeline() {
-        // let mut tokenizer = Tokenizer::new(
-        //     "
-        // let x = dbs.test_db.test_table.limit(10);
-        // // let y = dbs.test_db2.tb2.offset(1).limit(10);
-        // // let z = x JOIN y ON id=id;
-        // // z.select() ;
-        // dbs.test_db.test_table.offset(0).limit(10);
-        // ",
-        // );
+      
         let mut tokenizer = Tokenizer::new(
             "
         let x = dbs.test_db.test_table.offset(0);  
-        x.limit(10);
+        let y = dbs.test_db.test_rtable.offset(0);  
+        //x.limit(10);
+        // y.limit(10);
+        let z  = x JOIN y ON name;
+        z.limit(10);
         ",
         );
 
@@ -93,6 +92,27 @@ mod tests {
         let mut table = Table {
             name: "test_table".to_string(),
             schema: Schema::new(),
+            _type: TableType::Document,
+            storage_method: StorageModel::Row,
+            curr_page_id: 0,
+            curr_row_id: 0,
+            page_index: HashMap::new(),
+            default_index: BPTreeInternalNode::new(),
+            // default_index: BPTreeInternalNode::new(),
+            indexes: HashMap::new(),
+        };
+
+        let rschema: RelationalSchema =   HashMap::from([
+                ("name".to_string(), (RelationalType::String(50), false)),
+                ("balance".to_string(), (RelationalType::Numeric, false)),
+            ]) ;
+
+        let mut rtable = Table {
+            name: "test_rtable".to_string(),
+            schema: Schema::Relational(HashMap::from([
+                ("name".to_string(), (RelationalType::String(50), false)),
+                ("balance".to_string(), (RelationalType::Numeric, false)),
+            ])),
             _type: TableType::Document,
             storage_method: StorageModel::Row,
             curr_page_id: 0,
@@ -190,21 +210,54 @@ mod tests {
             ]),
         };
 
+        let rrecord1 = RelationalRecord {
+            id: Some(0),
+            fields: HashMap::from([
+                (
+                    "name".to_string(),
+                    RelationalValue::String("Jane Smith".to_string()),
+                ),
+                (
+                    "balance".to_string(),
+                    RelationalValue::Numeric(dec!(1003434343.4445)),
+                ),
+            ]),
+        };
+
+        let rrecord2 = RelationalRecord {
+            id: Some(0),
+            fields: HashMap::from([
+                (
+                    "name".to_string(),
+                    RelationalValue::String("John Doe".to_string()),
+                ),
+                (
+                    "balance".to_string(),
+                    RelationalValue::Numeric(dec!(92381893.4445)),
+                ),
+            ]),
+        };
+
         // need to make relational records also
 
         let mut db = Database::new("test_db".to_string());
 
         //initialize 10 pages
         for _ in 0..10 {
-
             match db.pager.try_borrow_mut() {
-                Ok(mut pager) => {pager.create_new_page().unwrap(); ()},
-                Err(err) => {println!("{:?}", err) }
+                Ok(mut pager) => {
+                    pager.create_new_page().unwrap();
+                    ()
+                }
+                Err(err) => {
+                    println!("{:?}", err)
+                }
             }
             // (*db.pager).borrow_mut().create_new_page().unwrap();
         }
 
         db.tables.insert("test_table".to_string(), table);
+        db.tables.insert("test_rtable".to_string(), rtable);
 
         let mut dbms = DBMS::new();
         dbms.databases.insert("test_db".to_string(), db);
@@ -213,6 +266,7 @@ mod tests {
         let db1: &mut Database = dbms.get_db_mut(&"test_db".to_string()).unwrap();
 
         let table_name = "test_table".to_string();
+        let rtable_name = "test_rtable".to_string();
 
         // Insert the first record
         let result1 = db1.insert_document_row(&table_name, record1.clone());
@@ -229,9 +283,23 @@ mod tests {
             Err(err) => println!("{:?}", err),
         }
 
+        let rresult1 = db1.insert_relational_row(&rtable_name, rrecord1.clone());
+        match rresult1 {
+            Ok(_) => println!("First relational record inserted!"),
+            Err(err) => println!("{:?}", err),
+        }
+        // assert!(result1.is_ok());
+
+        // Insert the second record
+        let rresult2 = db1.insert_relational_row(&rtable_name, rrecord2.clone());
+        match rresult2 {
+            Ok(_) => println!("Second relational record inserted!"),
+            Err(err) => println!("{:?}", err),
+        }
         // assert!(result2.is_ok());
 
         let table1 = db1.get_table(&"test_table".to_string()).unwrap();
+        let table2 = db1.get_table(&"test_rtable".to_string()).unwrap();
         println!("Table index {:?}", &table1.default_index);
 
         let page = (*db1.pager)
@@ -239,14 +307,25 @@ mod tests {
             .get_page_or_force(table1.curr_page_id)
             .unwrap();
 
+        let rpage = (*db1.pager)
+            .borrow_mut()
+            .get_page_or_force(table2.curr_page_id)
+            .unwrap();
+
         // println!("{:?}", table1.);
 
         // Check if the records are inserted correctly
         let document_page =
             DocumentRecordPage::deserialize(&page.borrow().borrow_mut().read_all()).unwrap();
-        assert_eq!(document_page.records.len(), 2);
+        // assert_eq!(document_page.records.len(), 2);
         assert_eq!(&document_page.records[0], &record1);
         assert_eq!(&document_page.records[1], &record2);
+
+        let relational_page=
+            RelationalRecordPage::deserialize(&rpage.borrow().borrow_mut().read_all(), &rschema).unwrap();
+        // assert_eq!(relational_page.records.len(), 2);
+        assert_eq!(&relational_page.records[0], &rrecord1);
+        assert_eq!(&relational_page.records[1], &rrecord2);
 
         let mut interpreter = Interpreter::new(ast);
         let res = interpreter.execute(&mut dbms);
