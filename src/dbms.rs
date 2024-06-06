@@ -70,7 +70,7 @@ mod tests {
         let y = dbs.test_db.test_rtable.offset(0);  
         //x.limit(10);
         // y.limit(10);
-        let z  = x JOIN y ON name;
+        let z  = x LJOIN y ON name=name;
         z.limit(10);
         ",
         );
@@ -81,11 +81,11 @@ mod tests {
         let statements = tree.parse();
         println!("\n\n\n Statements: {:?}", statements);
 
-        let mut ast = AST::new();
-        ast.generate(statements);
-        println!("\n\n\n Root: {:?}", ast.root);
-        println!("\n\n\n AST Lookup Table: {:?}", ast.lookup_table);
-        println!("\n\n\n AST Processed: {:?}", ast.processed_statements);
+        // let mut ast = AST::new();
+        // ast.generate(statements);
+        // println!("\n\n\n Root: {:?}", ast.root);
+        // println!("\n\n\n AST Lookup Table: {:?}", ast.lookup_table);
+        // println!("\n\n\n AST Processed: {:?}", ast.processed_statements);
 
         let mut table = Table {
             name: "test_table".to_string(),
@@ -319,7 +319,7 @@ mod tests {
         assert_eq!(&rdocuments.records[0], &rrecord1);
         assert_eq!(&rdocuments.records[1], &rrecord2);
 
-        let mut interpreter = Interpreter::new(ast);
+        let mut interpreter = Interpreter::new(statements);
         let res = interpreter.execute(&mut dbms);
         println!("{:?}", res);
     }
@@ -343,11 +343,11 @@ mod tests {
         let statements = tree.parse();
         println!("\n\n\n Statements: {:?}", statements);
 
-        let mut ast = AST::new();
-        ast.generate(statements);
-        println!("\n\n\n Root: {:?}", ast.root);
-        println!("\n\n\n AST Lookup Table: {:?}", ast.lookup_table);
-        println!("\n\n\n AST Processed: {:?}", ast.processed_statements);
+        // let mut ast = AST::new();
+        // ast.generate(statements);
+        // println!("\n\n\n Root: {:?}", ast.root);
+        // println!("\n\n\n AST Lookup Table: {:?}", ast.lookup_table);
+        // println!("\n\n\n AST Processed: {:?}", ast.processed_statements);
 
         let mut table = Table {
             name: "test_table".to_string(),
@@ -588,7 +588,8 @@ mod tests {
         assert_eq!(&relational_page.records[0], &rrecord1);
         assert_eq!(&relational_page.records[1], &rrecord2);
 
-        let mut interpreter = Interpreter::new(ast);
+        // let mut interpreter = Interpreter::new(ast);
+        let mut interpreter = Interpreter::new(statements);
         let res = interpreter.execute(&mut dbms);
         println!("{:?}", res);
     }

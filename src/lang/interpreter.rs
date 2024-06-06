@@ -20,6 +20,7 @@ use std::cell::RefCell;
 const DEFAULT_CHUNK_SIZE: usize = 32;
 
 pub fn get_assign_vars(expr: &Expr) -> Result<Vec<String>> {
+    println!("{:?}", expr);
     match &expr {
         Expr::Assign(e) => {
             // think about it, this left token is not unwrapped into variable or attr, could be either
@@ -39,6 +40,24 @@ pub fn get_assign_vars(expr: &Expr) -> Result<Vec<String>> {
                     ))
                 }
             }
+
+            Ok(res)
+        }
+        Expr::Binary(e) => {
+            // extract the left and right tokens
+            let left = match &*e.left {
+                Expr::Unary(l) => l.operator.lexeme.clone(),
+                Expr::Variable(l) => l.name.lexeme.clone(),
+                _ => unimplemented!(),
+            };
+
+            let right = match &*e.right {
+                Expr::Unary(l) => l.operator.lexeme.clone(),
+                Expr::Variable(l) => l.name.lexeme.clone(),
+                _ => unimplemented!(),
+            };
+
+            let res = vec![left, right]; // this is fine, right
 
             Ok(res)
         }
@@ -72,9 +91,9 @@ pub struct PredicateClosure {
 }
 
 pub struct Interpreter {
-    // do we need better local state here? what else?
     pub variables: HashMap<String, IterClosure>,
-    pub ast: AST,
+    // pub ast: AST,
+    pub statements: Vec<Stmt>,
 }
 
 impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for Interpreter {
@@ -288,7 +307,8 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for 
 
         //TODO: a variable should be guaranteed some literal ; its just unwrap for now
 
-        return self.visit_variable_token(&expr.name);
+        // return self.visit_variable_token(&expr.name);
+        unimplemented!()
         // match self.variables.get((&expr.name.literal.clone().unwrap())) {
         //     Some(y) => Ok(*y),
         //     None => Err(Error::NotFound(format!(
@@ -442,52 +462,61 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for 
                 // left join, we basically iter and zip where we can (based on id)
 
                 // also, we need the join predicate
+                let lpred = left.borrow().pred.clone();
+                let rpred = left.borrow().pred.clone();
 
                 let res = IterClosure {
-                    get_next_chunk: Rc::new(move |mut dbms, _| {
-                        let mut l_chunk = ((*left.borrow_mut()).get_next_chunk)(
-                            &mut dbms,
-                            &(*left.borrow()).pred,
-                        )?;
-                        let r_chunk = ((*right.borrow_mut()).get_next_chunk)(
-                            &mut dbms,
-                            &(*right.borrow()).pred,
-                        )?;
+                    get_next_chunk: Rc::new(move |mut dbms: &mut DBMS, _| {
+                        // need some beter way to rep empty results, not this
+                        let mut l_chunk = ((left.borrow_mut()).get_next_chunk)(&mut dbms, &lpred)?;
+                        let r_chunk = ((right.borrow_mut()).get_next_chunk)(&mut dbms, &rpred)?;
 
-                        //check the nulls
-                        if r_chunk.is_none() {
-                            return Ok(l_chunk);
-                        }
-                        if l_chunk.is_none() {
-                            return Ok(None);
-                        }
+                        // //check the nulls
+                        // if r_chunk.() {
+                        //     println!("Retrieved nothing from R");
+                        //     return Ok(l_chunk);
+                        // }
+                        // if l_chunk.is_none() {
+                        //     println!("Retrieved nothing from L");
+                        //     return Ok(None);
+
+                        // }
+                        // println!("RCHUNK {:?}, RPRED  {:?}, RIGHT {:?}", &r_chunk, &rpred, right.borrow());
+
+                        // this is wrong, not even a join
 
                         for (l, r) in l_chunk.iter_mut().zip(r_chunk.iter()) {
                             match (l, r) {
                                 (Records::DocumentRows(x), Records::DocumentRows(y)) => {
-                                    for (a, b) in x.iter_mut().zip(y) {
-                                        if (a.get_field(&join_vals[0])
-                                            == b.get_field(&join_vals[1]))
-                                            && a.fields.get(&join_vals[0]).is_some()
-                                        {
-                                            // zip these two then
-                                            a.fields.extend(b.fields.clone());
+                                    for a in x.iter_mut() {
+                                        for b in y.iter() {
+                                            if (a.get_field(&join_vals[0])
+                                                == b.get_field(&join_vals[1]))
+                                                && a.fields.get(&join_vals[0]).is_some()
+                                            {
+                                                // zip these two then
+                                                println!("Found something to zip");
+                                                a.fields.extend(b.fields.clone());
+                                            }
+                                            // otherwise, we do nothing. no null fields here, need schema for that
                                         }
-                                        // otherwise, we do nothing. no null fields here, need schema for that
                                     }
 
                                     //hate that I have to clone this
                                     return Ok(Some(Records::DocumentRows(x.clone())));
                                 }
                                 (Records::DocumentRows(x), Records::RelationalRows(y)) => {
-                                    for (a, b) in x.iter_mut().zip(y) {
-                                        if (a.get_field_as_relational(&join_vals[0]).as_ref()
-                                            == b.get_field(&join_vals[1]))
-                                            && a.get_field(&join_vals[0]).is_some()
-                                        {
-                                            // zip these two then
-                                            for (k, v) in b.fields.iter() {
-                                                a.fields.insert(k.clone(), v.to_document_value());
+                                    for a in x.iter_mut() {
+                                        for b in y.iter() {
+                                            if (a.get_field_as_relational(&join_vals[0]).as_ref()
+                                                == b.get_field(&join_vals[1]))
+                                                && a.get_field(&join_vals[0]).is_some()
+                                            {
+                                                // zip these two then
+                                                for (k, v) in b.fields.iter() {
+                                                    a.fields
+                                                        .insert(k.clone(), v.to_document_value());
+                                                }
                                             }
                                         }
                                         // otherwise, we do nothing. no null fields here, need schema for that
@@ -548,9 +577,16 @@ impl StmtVisitor<Result<IterClosure>> for Interpreter {
 }
 
 impl Interpreter {
-    pub fn new(ast: AST) -> Self {
+    // pub fn new(ast: AST) -> Self {
+    //     Self {
+    //         ast: ast,
+    //         variables: HashMap::new(),
+    //     }
+    // }
+
+    pub fn new(stmts: Vec<Stmt>) -> Self {
         Self {
-            ast: ast,
+            statements: stmts,
             variables: HashMap::new(),
         }
     }
@@ -618,43 +654,43 @@ impl Interpreter {
     // makes more sense to get a clone we can modify for attrs and elsewhere also
     fn visit_variable_token(&self, token: &Token) -> Result<IterClosure> {
         //TODO: a variable should be guaranteed some literal ; its just unwrap for now
-        match self.ast.lookup_table.get(&token.literal.clone().unwrap()) {
-            //resolve variable into only IterClosure for now (recorditerator would be better for optimization)
+        // match self.ast.lookup_table.get(&token.literal.clone().unwrap()) {
+        //     //resolve variable into only IterClosure for now (recorditerator would be better for optimization)
 
-            // we should be able to deal with attrs like db.TABLES.x , or do we enforce something like .offset(0) for now?
-            // this way seems like something I should get able to execute rn.
-            Some(y) => {
-                let m = match &y.data {
-                    NodeData::Join(x) => {
-                        println!("Visiting variable {:?} ", x.dataexpr);
-                        self.evaluate(&Expr::DataExpr(x.dataexpr.clone()))
-                    }
-                    NodeData::Source(x) => self.evaluate(&x.source),
+        //     // we should be able to deal with attrs like db.TABLES.x , or do we enforce something like .offset(0) for now?
+        //     // this way seems like something I should get able to execute rn.
+        //     Some(y) => {
+        //         let m = match &y.data {
+        //             NodeData::Join(x) => {
+        //                 println!("Visiting variable {:?} ", x.dataexpr);
+        //                 self.evaluate(&Expr::DataExpr(x.dataexpr.clone()))
+        //             }
+        //             NodeData::Source(x) => self.evaluate(&x.source),
 
-                    // TODO: something like this could be circular i.e x = x
-                    NodeData::Variable(x) => unimplemented!(),
-                    NodeData::Projection(x) => unimplemented!(),
-                };
-                m
-            }
-            None => Err(Error::NotFound(format!(
-                "Variable {:?} does not exist",
-                token
-            ))),
-        }
-        // match self.variables.get(&token.literal.clone().unwrap()) {
-        //     Some(y) => Ok(*y),
+        //             // TODO: something like this could be circular i.e x = x
+        //             NodeData::Variable(x) => unimplemented!(),
+        //             NodeData::Projection(x) => unimplemented!(),
+        //         };
+        //         m
+        //     }
         //     None => Err(Error::NotFound(format!(
         //         "Variable {:?} does not exist",
         //         token
         //     ))),
         // }
+        match self.variables.get(&token.literal.clone().unwrap()) {
+            Some(y) => Ok(y.clone()),
+            None => Err(Error::NotFound(format!(
+                "Variable {:?} does not exist",
+                token
+            ))),
+        }
     }
 
     pub fn evaluate(&self, expr: &Expr) -> Result<IterClosure> {
         let res = match &expr {
             Expr::Variable(expr) => self.visit_variable(expr),
-            // Expr::Attribute(expr) => self.visit_attribute(expr),
+            // Expr::Attribute(expr) => self.visit_(expr),
             Expr::Assign(expr) => self.visit_assign(expr),
             Expr::DataCall(expr) => self.visit_data_call(expr),
             Expr::DataExpr(expr) => self.visit_data_expr(expr),
@@ -673,7 +709,7 @@ impl Interpreter {
     pub fn evaluate_call(&self, expr: &Expr) -> Result<IterClosure> {
         let res = match &expr {
             Expr::DataCall(expr) => self.visit_data_call(expr),
-            Expr::Attribute(expr) =>  self.visit_variable_token(&expr.tokens[0]),
+            Expr::Attribute(expr) => self.visit_variable_token(&expr.tokens[0]),
             _ => Err(Error::TypeError(
                 "Expr type not supported in eval datacall func".to_string(),
             )),
@@ -759,88 +795,106 @@ impl Interpreter {
 
     pub fn execute(&mut self, dbms: &mut DBMS) -> Result<Records> {
         // resolve all variables first
-        for (name, stmt) in self.ast.lookup_table.iter() {
-           match stmt._type {
-                NodeType::Source => { 
-                    match &stmt.data {
-                        NodeData::Source(x) => {
-                            match &x.source {
-                                Expr::DataCall(x) => {
-                                    self.variables.insert(name.clone(),  self.visit_data_call(x)?); 
-                                },
-                            _ => panic!("Unsupported type 3")
-                            }
-                        },
-                        _ => panic!("Unsupported type 2")
+        // for (name, stmt) in self.ast.lookup_table.iter() {
+        //    match stmt._type {
+        //         NodeType::Source => {
+        //             match &stmt.data {
+        //                 NodeData::Source(x) => {
+        //                     match &x.source {
+        //                         Expr::DataCall(x) => {
+        //                             self.variables.insert(name.clone(),  self.visit_data_call(x)?);
+        //                         },
+        //                     _ => panic!("Unsupported type 3")
+        //                     }
+        //                 },
+        //                 _ => panic!("Unsupported type 2")
+        //             }
+        //         },
+        //         _ => panic!("Unsupported type")
+        //     }
+        // }
+
+        // i mean we can just do everything here, since its linear
+        // oh, we cant do that, no , we can
+        // when all the evaluations are set and done, we just pull from the final expr
+        for (root, stmts) in self.statements.split_last() {
+            for stmt in stmts {
+                match stmt {
+                    Stmt::Var(s) => {
+                        self.variables
+                            .insert(s.name.lexeme.clone(), self.evaluate(&s.initializer)?);
                     }
-                },
-                _ => panic!("Unsupported type")
-            }
-        }        
-
-        if let Some(x) = self.execute_processed_stmt(&self.ast.root, true) {
-            let iter_closure = x?;
-            let mut records: Records;
-            let empty_pred = RPredicate::new();
-
-            // get initial chunk, for type matching
-            match (iter_closure.get_next_chunk)(dbms, &empty_pred)? {
-                Some(chunk) => {
-                    println!("We got a chunk: {:?}", &chunk);
-                    records = chunk;
+                    Stmt::Expression(s) => {
+                        self.evaluate(&s.expression);
+                    }
+                    _ => unimplemented!(),
                 }
-                None => return Ok(Records::DocumentRows(Vec::new())),
             }
 
-            loop {
-                match (iter_closure.get_next_chunk)(dbms, &empty_pred)? {
-                    Some(chunk) => {
-                        println!("We got a chunk: {:?}", &chunk);
-                        match chunk {
-                            Records::DocumentRows(x) => {
-                                if (x.len() == 0) {
-                                    break;
-                                }
-                                match records {
-                                    Records::DocumentRows(ref mut y) => {
-                                        y.extend(x);
+            match root {
+                Stmt::Expression(s) => {
+                    let iter_closure = self.evaluate(&s.expression)?;
+                    let mut records: Records;
+                    let empty_pred = RPredicate::new();
+
+                    // get initial chunk, for type matching
+                    match (iter_closure.get_next_chunk)(dbms, &empty_pred)? {
+                        Some(chunk) => {
+                            println!("We got a chunk: {:?}", &chunk);
+                            records = chunk;
+                        }
+                        None => return Ok(Records::DocumentRows(Vec::new())),
+                    }
+
+                    loop {
+                        match (iter_closure.get_next_chunk)(dbms, &empty_pred)? {
+                            Some(chunk) => {
+                                println!("We got a chunk: {:?}", &chunk);
+                                match chunk {
+                                    Records::DocumentRows(x) => {
+                                        if (x.len() == 0) {
+                                            break;
+                                        }
+                                        match records {
+                                            Records::DocumentRows(ref mut y) => {
+                                                y.extend(x);
+                                            }
+                                            _ => unimplemented!(), //mismatched types
+                                        }
                                     }
-                                    _ => unimplemented!(), //mismatched types
+                                    Records::RelationalRows(x) => {
+                                        if (x.len() == 0) {
+                                            break;
+                                        }
+                                        match records {
+                                            Records::RelationalRows(ref mut y) => {
+                                                y.extend(x);
+                                            }
+                                            _ => unimplemented!(), //mismatched types
+                                        }
+                                    }
+                                    Records::DocumentColumns(x) => {
+                                        if (x.len() == 0) {
+                                            break;
+                                        }
+                                        match records {
+                                            Records::DocumentColumns(ref mut y) => {
+                                                y.extend(x);
+                                            }
+                                            _ => unimplemented!(), //mismatched types
+                                        }
+                                    }
                                 }
                             }
-                            Records::RelationalRows(x) => {
-                                if (x.len() == 0) {
-                                    break;
-                                }
-                                match records {
-                                    Records::RelationalRows(ref mut y) => {
-                                        y.extend(x);
-                                    }
-                                    _ => unimplemented!(), //mismatched types
-                                }
-                            }
-                            Records::DocumentColumns(x) => {
-                                if (x.len() == 0) {
-                                    break;
-                                }
-                                match records {
-                                    Records::DocumentColumns(ref mut y) => {
-                                        y.extend(x);
-                                    }
-                                    _ => unimplemented!(), //mismatched types
-                                }
-                            }
+                            None => break,
                         }
                     }
-                    None => break,
-                }
-            }
 
-            return Ok(records);
-        } else {
-            return Err(Error::Unknown(
-                "Execute_processed_stmt returned none".to_string(),
-            ));
+                    return Ok(records);
+                }
+                _ => panic!("Unsupported projection node"),
+            }
         }
+        return Err(Error::Unknown("No statements to execute".to_string()));
     }
 }
