@@ -48,6 +48,7 @@ pub struct Page {
     pub index: usize,
     bytes: RwLock<Vec<u8>>,
     dirty: RwLock<bool>,
+    taken: bool,
 }
 
 #[derive(Debug)]
@@ -72,6 +73,7 @@ impl Page {
             index,
             bytes: RwLock::new(vec![0; PAGE_SIZE_BYTES]),
             dirty: RwLock::new(true),
+            taken: false,
         }
     }
 
@@ -228,6 +230,7 @@ impl Pager {
                         index: index,
                         bytes: RwLock::new(buf),
                         dirty: RwLock::new(false),
+                        taken: false,
                     });
                 }
                 return Err(Error::Unknown("Could not read bytes from file".to_string()));

@@ -2,6 +2,7 @@ use crate::record::*;
 use crate::types::*; 
 use std::collections::HashMap;
 
+#[derive(Clone)]
 pub enum Schema {
     Relational(RelationalSchema),
     Nil

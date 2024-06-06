@@ -339,6 +339,8 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for 
     fn visit_data_call(&self, expr: &DataCall) -> Result<IterClosure> {
         // we need special support for system level prompts
 
+        println!("Evaluating datacall {:?}", &expr);
+
         let mut db_name = String::new();
         let mut table_name = String::new();
 
@@ -414,9 +416,14 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for 
 
     fn visit_data_expr(&self, expr: &DataExpr) -> Result<IterClosure> {
         //expecting data_call JOIN data_call on id1=id2
-        let left = RefCell::new(self.evaluate_call(&expr.left)?);
+        println!("Visting data expr \n");
+        let a = self.evaluate_call(&expr.left)?;
+        let left = RefCell::new(a);
+        println!("Visting data exp1 \n");
         let right = RefCell::new(self.evaluate_call(&expr.right)?);
+        println!("Visting data exp2 \n");
         let join_vals = get_assign_vars(&expr.join_expr)?;
+        println!("Visting data exp3 \n");
 
         println!(
             "Join Expr: {:?} ; Join Vals : {:?}",
@@ -618,7 +625,10 @@ impl Interpreter {
             // this way seems like something I should get able to execute rn.
             Some(y) => {
                 let m = match &y.data {
-                    NodeData::Join(x) => self.evaluate(&Expr::DataExpr(x.dataexpr.clone())),
+                    NodeData::Join(x) => {
+                        println!("Visiting variable {:?} ", x.dataexpr);
+                        self.evaluate(&Expr::DataExpr(x.dataexpr.clone()))
+                    }
                     NodeData::Source(x) => self.evaluate(&x.source),
 
                     // TODO: something like this could be circular i.e x = x
@@ -663,6 +673,7 @@ impl Interpreter {
     pub fn evaluate_call(&self, expr: &Expr) -> Result<IterClosure> {
         let res = match &expr {
             Expr::DataCall(expr) => self.visit_data_call(expr),
+            Expr::Attribute(expr) =>  self.visit_variable_token(&expr.tokens[0]),
             _ => Err(Error::TypeError(
                 "Expr type not supported in eval datacall func".to_string(),
             )),
@@ -725,7 +736,14 @@ impl Interpreter {
                         }
                     }
                 } else {
-                    // not needed anyways
+                    // match &s.data {
+                    //     NodeData::Variable(x) => {
+                    //         match
+                    //     }
+                    //     _ => {
+                    //         unimplemented!()
+                    //     }
+                    // }
                     return None;
                 }
             } else {
@@ -741,6 +759,24 @@ impl Interpreter {
 
     pub fn execute(&mut self, dbms: &mut DBMS) -> Result<Records> {
         // resolve all variables first
+        for (name, stmt) in self.ast.lookup_table.iter() {
+           match stmt._type {
+                NodeType::Source => { 
+                    match &stmt.data {
+                        NodeData::Source(x) => {
+                            match &x.source {
+                                Expr::DataCall(x) => {
+                                    self.variables.insert(name.clone(),  self.visit_data_call(x)?); 
+                                },
+                            _ => panic!("Unsupported type 3")
+                            }
+                        },
+                        _ => panic!("Unsupported type 2")
+                    }
+                },
+                _ => panic!("Unsupported type")
+            }
+        }        
 
         if let Some(x) = self.execute_processed_stmt(&self.ast.root, true) {
             let iter_closure = x?;
@@ -795,7 +831,6 @@ impl Interpreter {
                                 }
                             }
                         }
-                        
                     }
                     None => break,
                 }

@@ -65,7 +65,10 @@ impl Table {
         pager: &mut Pager,
         row: RelationalRecord,
     ) -> Result<()> {
-        let id = row.id.unwrap().clone();
+        let id = match row.id {
+            Some(x) => x.clone(),
+            None => self.curr_row_id+ 1,
+        };
         // unimplemented!()
         let schema = match &self.schema {
             Schema::Relational(x) => x,
@@ -110,6 +113,11 @@ impl Table {
                 .borrow_mut()
                 .write_all(relational_page.serialize(&schema));
 
+            self.default_index
+                .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0))
+                .unwrap(); // TODO: can offset be useful here?
+
+            self.curr_row_id += 1;
             pager.flush_page(&(*curr_page).borrow_mut())?;
         }
         Ok(())
@@ -136,7 +144,10 @@ impl Table {
     pub fn insert_document_row(&mut self, pager: &mut Pager, row: DocumentRecord) -> Result<()> {
         //TODO: the table should check whether its a document table  or not
 
-        let id = row.id.unwrap().clone();
+        let id = match row.id {
+            Some(x) => x.clone(),
+            None => self.curr_row_id+ 1,
+        };
         let mut curr_page = ((*pager).borrow_mut().get_page_or_force(self.curr_page_id)?);
         let mut document_page =
             match DocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all())
@@ -175,6 +186,7 @@ impl Table {
                 .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0))
                 .unwrap(); // TODO: can offset be useful here?
                            // , no since we are just doing it on page creation
+            self.curr_row_id += 1;
             println!("index after insertion{:?}", &self.default_index);
             pager.flush_page(&(*curr_page).borrow_mut())?;
             // self.curr_page_id
@@ -275,6 +287,8 @@ impl Table {
 mod tests {
     use super::*;
 
+    use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
     //TODO: test insert relational row
 
     #[test]
@@ -396,4 +410,80 @@ mod tests {
         assert_eq!(&document_page.records[0], &record1);
         assert_eq!(&document_page.records[1], &record2);
     }
+
+     #[test]
+    fn test_insert_relational_row() {
+        let mut pager = Pager::new("test".to_string());
+        // initialize 10 pages
+        for _ in 0..10 {
+            pager.create_new_page().unwrap();
+        }
+        let schema: RelationalSchema =   HashMap::from([
+                ("name".to_string(), (RelationalType::String(50), false)),
+                ("balance".to_string(), (RelationalType::Numeric, false)),
+            ]) ;
+
+        let mut table = Table {
+            name: "test_table".to_string(),
+            schema: Schema::Relational(HashMap::from([
+                ("name".to_string(), (RelationalType::String(50), false)),
+                ("balance".to_string(), (RelationalType::Numeric, false)),
+            ])),
+            _type: TableType::Relational,
+            storage_method: StorageModel::Row,
+            curr_page_id: 0,
+            curr_row_id: 0,
+            page_index: HashMap::new(),
+            default_index: BPTreeInternalNode::new(),
+            indexes: HashMap::new(),
+        };
+
+        let record1 = RelationalRecord {
+            id: Some(0),
+            fields: HashMap::from([
+                (
+                    "name".to_string(),
+                    RelationalValue::String("Jane Smith".to_string()),
+                ),
+                (
+                    "balance".to_string(),
+                    RelationalValue::Numeric(dec!(1003434343.4445)),
+                ),
+            ]),
+        };
+
+        let record2 = RelationalRecord {
+            id: Some(0),
+            fields: HashMap::from([
+                (
+                    "name".to_string(),
+                    RelationalValue::String("John Doe".to_string()),
+                ),
+                (
+                    "balance".to_string(),
+                    RelationalValue::Numeric(dec!(92381893.4445)),
+                ),
+            ]),
+        };
+
+        // Insert the first record
+        let result1 = table.insert_relational_row(&mut pager, record1.clone());
+        assert!(result1.is_ok());
+
+        // Insert the second record
+        let result2 = table.insert_relational_row(&mut pager, record2.clone());
+        assert!(result2.is_ok());
+
+        let page = pager.get_page_or_force(table.curr_page_id).unwrap();
+
+        // Check if the records are inserted correctly
+        let relational_page = RelationalRecordPage::deserialize(
+            &(*page).borrow_mut().read_all(),
+            &schema,
+        ).unwrap();
+        // assert_eq!(relational_page.records.len(), 2);
+        assert_eq!(relational_page.records[0], record1);
+        assert_eq!(relational_page.records[1], record2);
+    }
+    
 }
