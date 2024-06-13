@@ -684,6 +684,28 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn test_record_ser_deser_string() {
+        let record = DocumentRecord {
+            id: Some(1),
+            fields: HashMap::from([
+                ("name".to_string(), DocumentValue::String("John".to_string())),
+                ("age".to_string(), DocumentValue::Number(30.0)),
+                ("active".to_string(), DocumentValue::Boolean(true)),
+                ("balance".to_string(), DocumentValue::Numeric(Decimal::from(1000))),
+            ]),
+        };
+
+        // Serialize the DocumentRecord to JSON
+        let json = serde_json::to_string(&record).unwrap();
+        println!("Serialized JSON: {}", json);
+
+        // Deserialize the JSON back into a DocumentRecord
+        let deserialized: DocumentRecord = serde_json::from_str(&json).unwrap();
+        println!("Deserialized DocumentRecord: {:?}", deserialized);
+    }
+
     // DOCUMENT RECORD PAGES
 
     #[test]

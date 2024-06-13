@@ -26,8 +26,10 @@ pub enum Error{
     IoError(std::io::Error),
     AccessError,
     TypeError(String),
+    DBMSCall(String),
     NotFound(String),
     SerializationError,
+    SerdeSerializationError(serde_json::Error),
     BsonError(bson::ser::Error),
     BsonDeserializationError(bson::de::Error), 
 }
@@ -61,6 +63,11 @@ impl From<bson::de::Error> for Error {
     }
 }
 
+impl From<serde_json::Error> for Error {
+    fn from(err: serde_json::Error) -> Self {
+        Error::SerdeSerializationError(err)
+    }
+}
 
 impl From<TryFromSliceError> for Error {
     fn from(err: TryFromSliceError) -> Self {
@@ -76,6 +83,7 @@ impl std::fmt::Display for Error {
         use Error::*;
         match self {
             Unknown(err) => write!(f, "Unclassified Error: {err}"),
+            DBMSCall(err) => write!(f, "Error evaluting dbms call: {err}"),
             PageError => write!(f, "Pager Error"),
             ScanError => write!(f, "Invalid input string"),
             FileNotFound => write!(f, "File Not found"),
@@ -85,6 +93,7 @@ impl std::fmt::Display for Error {
             TypeError(err) => write!(f, "TypeError: {err}"),
             SerializationError => write!(f, "Error serializing or deserializing"),
              BsonError(err) => write!(f, "BSON Serialization Error: {err}"),
+            SerdeSerializationError(err) => write!(f, "Serde Deserialization Error: {err}"),
             BsonDeserializationError(err) => write!(f, "BSON Deserialization Error: {err}"),
         }
     }

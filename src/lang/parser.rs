@@ -1,8 +1,68 @@
-use std::vec::Vec;
-use crate::lang::types::*; 
-use crate::lang::tokenizer::*; 
 use crate::error::*;
+use crate::lang::tokenizer::*;
+use crate::lang::types::*;
+use crate::record::*;
+use rust_decimal::prelude::*;
+use rust_decimal_macros::dec;
 use std::collections::HashMap;
+use std::vec::Vec;
+
+pub fn parse_json_to_document_record(json: &str) -> Result<DocumentRecord> {
+    let fields: HashMap<String, serde_json::Value> = serde_json::from_str(json)?;
+
+    let document_fields: HashMap<String, DocumentValue> = fields
+        .into_iter()
+        .map(|(key, value)| (key, parse_json_value_to_document_value(value)))
+        .collect();
+
+    
+    Ok(DocumentRecord {
+        //if ID was given, take it
+        id: match document_fields.get("id") {
+            Some(x) => {
+                match x {
+                    DocumentValue::Number(y) => Some(*y as usize),
+                    _ => None
+                }
+            },
+            None => None
+        },
+        fields: document_fields,
+    })
+}
+
+fn parse_json_value_to_document_value(value: serde_json::Value) -> DocumentValue {
+    match value {
+        serde_json::Value::Null => DocumentValue::Null,
+        serde_json::Value::Bool(val) => DocumentValue::Boolean(val),
+        serde_json::Value::Number(val) => DocumentValue::Number(val.as_f64().unwrap()),
+        serde_json::Value::String(val) => {
+            if val.ends_with('D') || val.ends_with('d') {
+                if let Ok(numeric_val) = Decimal::from_str(&val[..val.len() - 1]) {
+                    DocumentValue::Numeric(numeric_val)
+                } else {
+                    DocumentValue::String(val)
+                }
+            } else {
+                DocumentValue::String(val)
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            let document_arr = arr
+                .into_iter()
+                .map(parse_json_value_to_document_value)
+                .collect();
+            DocumentValue::Array(document_arr)
+        }
+        serde_json::Value::Object(obj) => {
+            let document_obj = obj
+                .into_iter()
+                .map(|(k, v)| (k, parse_json_value_to_document_value(v)))
+                .collect();
+            DocumentValue::Object(document_obj)
+        }
+    }
+}
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -70,17 +130,18 @@ impl Parser {
         } else {
             self.error(self.peek(), "Expected some var initializer");
         };
-        self.consume(TokenType::Semicolon, "Expect ';' after variable declaration.");
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after variable declaration.",
+        );
         Stmt::Var(VarStmt { name, initializer })
     }
 
     fn statement(&mut self) -> Stmt {
-       
         let left = self.data_expr();
         self.consume(TokenType::Semicolon, "Expect ';' after value. ");
 
         Stmt::Expression(ExprStmt { expression: left })
-
     }
 
     // fn return_statement(&mut self) -> Stmt {
@@ -94,10 +155,9 @@ impl Parser {
     //     Stmt::Return(ReturnStmt { keyword, value })
     // }
 
-
     fn data_expr(&mut self) -> Expr {
         let left = self.data_call_expr();
-        println!("\n\n LEft {:?}", left); 
+        println!("\n\n LEft {:?}", left);
         if self.check(TokenType::Semicolon) {
             return left;
         } else {
@@ -107,35 +167,33 @@ impl Parser {
                 let right = self.data_call_expr();
 
                 if self.check(TokenType::On) {
-                   self.consume(TokenType::On, "Expected ON operator" );
-                   let join_expr = self.expression();
-                   
-                   Expr::DataExpr(DataExpr{
-                        left : Box::new(left),
+                    self.consume(TokenType::On, "Expected ON operator");
+                    let join_expr = self.expression();
+
+                    Expr::DataExpr(DataExpr {
+                        left: Box::new(left),
                         right: Box::new(right),
                         join: join,
-                        join_expr: Box::new(join_expr)
-                   }) 
+                        join_expr: Box::new(join_expr),
+                    })
                 } else {
                     self.error(self.peek(), "Expected ON operator");
                 }
             } else {
                 self.error(self.peek(), "Expected JOIN or LJOIN expr");
             }
-
         }
         // self.consume(TokenType::Semicolon, "Expect ';' after value. ");
         // Stmt::Expression(ExprStmt { expr })
     }
-    
-    fn data_call_expr(&mut self) -> Expr {
-        
 
+    fn data_call_expr(&mut self) -> Expr {
         // this mustnt be working.
         // the left should be some variable either ways
-        if let Ok(token) = self.peek_ahead(1) { //if its just a semicolon that is after, its a variable for sure
+        if let Ok(token) = self.peek_ahead(1) {
+            //if its just a semicolon that is after, its a variable for sure
             if token._type == TokenType::Semicolon {
-                return self.expression()
+                return self.expression();
             }
         }
 
@@ -146,109 +204,104 @@ impl Parser {
         //parse out the attr and the method
         //TODO: make variables attributes
 
-
-        // let left =  self.consume(TokenType::Variable, "Expected a variable"); 
+        // let left =  self.consume(TokenType::Variable, "Expected a variable");
 
         // we need to ddo this as many times as there are methods (apply multiple)
-        
+
         // just while theres a dote
 
-        let mut a = Vec::new(); 
+        let mut a = Vec::new();
         // a.push(left);
         // self.consume(TokenType::Dot, "Expected a Dot");
 
-        while !self.check_token_types(&[TokenType::LeftParen, TokenType::Semicolon, TokenType::Ljoin, TokenType::Join, TokenType::On]){ 
-            a.push(self.consume(TokenType::Variable, "Expected a variable")); 
-            if self.check(TokenType::Dot){
+        while !self.check_token_types(&[
+            TokenType::LeftParen,
+            TokenType::Semicolon,
+            TokenType::Ljoin,
+            TokenType::Join,
+            TokenType::On,
+        ]) {
+            a.push(self.consume(TokenType::Variable, "Expected a variable"));
+            if self.check(TokenType::Dot) {
                 self.consume(TokenType::Dot, "Expected a dot");
             }
         }
 
         if !self.check(TokenType::LeftParen) {
             // is an attribute, early exit
-            return Expr::Attribute(Attribute { tokens: a })
+            return Expr::Attribute(Attribute { tokens: a });
         }
 
         // otherwise, there are methods to be parsed
 
-        let new_method = MethodType::new( a.last().unwrap() );
+        let new_method = MethodType::new(a.last().unwrap());
         if new_method == MethodType::Illegal {
             self.error(&a.pop().unwrap(), "Unsupported method call");
         }
 
-
-        a.pop(); 
+        a.pop();
         let mut datacall = DataCall {
-
-            attr: Attribute{tokens: a} ,
+            attr: Attribute { tokens: a },
             methods: Vec::new(),
             arguments: Vec::new(),
         };
 
         // its here we need to parse multiple methods
         if self.check(TokenType::LeftParen) {
-            self.consume(TokenType::LeftParen, "Expected '(' for method"); 
-                //now we parse the arguments
+            self.consume(TokenType::LeftParen, "Expected '(' for method");
+            //now we parse the arguments
             let arguments = self.arguments();
 
-            // Expr::DataCall( DataCall { attr: a, method: new_method ,  arguments: arguments } ) 
+            // Expr::DataCall( DataCall { attr: a, method: new_method ,  arguments: arguments } )
             datacall.methods.push(new_method);
-            datacall.arguments.push(arguments); 
-
+            datacall.arguments.push(arguments);
         }
-
 
         while self.check(TokenType::Dot) {
             self.consume(TokenType::Dot, "Expected '.' here.");
 
-            let token= self.consume(TokenType::Variable, "Expected a method name here.") ;
-            let method = MethodType::new(&token) ;
+            let token = self.consume(TokenType::Variable, "Expected a method name here.");
+            let method = MethodType::new(&token);
             if method == MethodType::Illegal {
-                self.error(&token , "Unsupported method call");
+                self.error(&token, "Unsupported method call");
             }
             // convert this to a methodenum
 
-
-            self.consume(TokenType::LeftParen, "Expected '(' for method"); 
-                //now we parse the arguments
+            self.consume(TokenType::LeftParen, "Expected '(' for method");
+            //now we parse the arguments
             let arguments = self.arguments();
 
             datacall.methods.push(method);
-            datacall.arguments.push(arguments); 
-
+            datacall.arguments.push(arguments);
         }
 
         Expr::DataCall(datacall)
         //parse potential successive methods
 
-        
-            // its just an attr
-
-
+        // its just an attr
 
         //create the method type
         //check if method (not needed)
         // if self.check(TokenType::Method) {
         //     let m = self.consume(TokenType::Method, "Method should be consumed herer");
 
-        //     self.consume(TokenType::LeftParen, "Expected '(' for method"); 
+        //     self.consume(TokenType::LeftParen, "Expected '(' for method");
         //         //now we parse the arguments
         //     let arguments = self.arguments();
 
-        //     Expr::DataCall( DataCall { attr: left, arguments: arguments } ) 
-                    
+        //     Expr::DataCall( DataCall { attr: left, arguments: arguments } )
+
         // } else {
         //      Expr::Variable(Variable { name: left })
         // }
-        
     }
 
     fn arguments(&mut self) -> Vec<Expr> {
-
         let mut arguments = Vec::new();
         if !self.check(TokenType::RightParen) {
             loop {
-                if arguments.len() >= 255 { // dk about this fam
+                if arguments.len() >= 255 {
+                    // dk about this fam
                     self.error(self.peek(), "Can't have more than 255 arguments.");
                 }
                 arguments.push(self.expression());
@@ -276,15 +329,12 @@ impl Parser {
     //     // Stmt::Expression(ExprStmt { expr })
     // }
 
+    /// ALL EXPRESSION STUFF
+    ///
 
-
-     /// ALL EXPRESSION STUFF
-     /// 
-    
     fn expression(&mut self) -> Expr {
         return self.or();
     }
-
 
     // fn assignment(&mut self) -> Expr {
     //     let expr = self.or();
@@ -337,7 +387,7 @@ impl Parser {
     fn equality(&mut self) -> Expr {
         let mut expr = self.comparison();
 
-        // SQL doesnt use == 
+        // SQL doesnt use ==
         while self.match_token_types(&[TokenType::NotEqual, TokenType::Equal]) {
             let operator = self.previous().clone();
             let right = self.comparison();
@@ -354,7 +404,12 @@ impl Parser {
     fn comparison(&mut self) -> Expr {
         let mut expr = self.term();
 
-        while self.match_token_types(&[TokenType::Greater, TokenType::GreaterEqual, TokenType::Less, TokenType::LessEqual]) {
+        while self.match_token_types(&[
+            TokenType::Greater,
+            TokenType::GreaterEqual,
+            TokenType::Less,
+            TokenType::LessEqual,
+        ]) {
             let operator = self.previous().clone();
             let right = self.term();
             expr = Expr::Binary(Binary {
@@ -430,24 +485,25 @@ impl Parser {
 
     fn primary(&mut self) -> Expr {
         if self.match_token(TokenType::False) {
-            return Expr::Literal(Literal::new( Value::new_bool(false), TokenType::Boolean)) ;
+            return Expr::Literal(Literal::new(Value::new_bool(false), TokenType::Boolean));
         }
         if self.match_token(TokenType::True) {
-            return Expr::Literal(Literal::new( Value::new_bool(true), TokenType::Boolean)) ;
+            return Expr::Literal(Literal::new(Value::new_bool(true), TokenType::Boolean));
         }
         if self.match_token(TokenType::Null) {
-            return Expr::Literal(Literal::new( Value::new_nil(), TokenType::Null)) ;
+            return Expr::Literal(Literal::new(Value::new_nil(), TokenType::Null));
         }
         //TODO
         // if self.match_token(TokenType::Attribute) {
         //     return Expr::Attribute(Variable { tokens: self.previous().clone() });
         // }
         if self.match_token(TokenType::Variable) {
-            return Expr::Variable(Variable { name: self.previous().clone()});
+            return Expr::Variable(Variable {
+                name: self.previous().clone(),
+            });
         }
 
         if self.match_token_types(&[TokenType::Number, TokenType::String]) {
-    
             return Expr::Literal(match self.previous()._type {
                 TokenType::Number => {
                     if let Some(x) = self.previous().literal.clone() {
@@ -478,7 +534,6 @@ impl Parser {
         }
     }
 
-
     fn is_at_end(&self) -> bool {
         self.peek()._type == TokenType::Eof
     }
@@ -487,11 +542,10 @@ impl Parser {
         &self.tokens[self.current]
     }
 
-    fn peek_ahead(&self, n: usize ) -> Result<&Token> {
+    fn peek_ahead(&self, n: usize) -> Result<&Token> {
         if self.current + n >= self.tokens.len() {
             Err(Error::AccessError) //TODO: should be indexerror
-        } else{ 
-
+        } else {
             Ok(&self.tokens[self.current + n])
         }
     }
@@ -510,11 +564,11 @@ impl Parser {
 
     fn check_token_types(&self, token_types: &[TokenType]) -> bool {
         if self.is_at_end() {
-            return false
+            return false;
         }
         for &token_type in token_types {
             if self.peek()._type == token_type {
-                return true
+                return true;
             }
         }
         false
@@ -568,7 +622,16 @@ impl Parser {
         println!("{:?}", self.peek());
         // println!("{:?}", self.statements);
 
-        panic!("[line {}] Error{}: {}", token.line, if token._type == TokenType::Eof { " at end" } else { "" }, message)
+        panic!(
+            "[line {}] Error{}: {}",
+            token.line,
+            if token._type == TokenType::Eof {
+                " at end"
+            } else {
+                ""
+            },
+            message
+        )
     }
 
     // fn synchronize(&mut self) {
@@ -600,13 +663,15 @@ mod tests {
     //need to tests this a lot, will come back
 
     #[test]
-    fn test_some_string(){
-        let mut tokenizer = Tokenizer::new("
+    fn test_some_string() {
+        let mut tokenizer = Tokenizer::new(
+            "
         let x = db.TABLES.b.filter(); 
         let y = db.TABLES.x.filter() ; 
         let z = x JOIN y ON id;  
         z.select(a,b,c,d) ;
-        ");
+        ",
+        );
         // let mut tokenizer = Tokenizer::new("
         // let x = db.TABLES.b.filter().orderby();
         // ");
@@ -616,5 +681,89 @@ mod tests {
         let statements = tree.parse();
         println!("\n\n\n Statements: {:?}", statements);
         ()
+    }
+
+    #[test]
+    fn test_parse_json_to_document_record() {
+        let json = r#"{"active": true, "name": "John", "age": 30, "balance": "1000.0D"}"#;
+
+        let document_record = parse_json_to_document_record(json).unwrap();
+        println!("Parsed DocumentRecord: {:?}", document_record);
+    }
+
+    #[test]
+    fn test_parse_json_with_nested_objects() {
+        let json = r#"{
+            "user": {
+                "name": "Alice",
+                "age": 25,
+                "address": {
+                    "street": "123 Main St",
+                    "city": "New York"
+                }
+            },
+            "products": [
+                {
+                    "name": "Phone",
+                    "price": 999.99
+                },
+                {
+                    "name": "Laptop",
+                    "price": 1500
+                }
+            ]
+        }"#;
+
+        let expected = DocumentRecord {
+            id: None,
+            fields: HashMap::from([
+                (
+                    "user".to_string(),
+                    DocumentValue::Object(HashMap::from([
+                        (
+                            "name".to_string(),
+                            DocumentValue::String("Alice".to_string()),
+                        ),
+                        ("age".to_string(), DocumentValue::Number(25.0)),
+                        (
+                            "address".to_string(),
+                            DocumentValue::Object(HashMap::from([
+                                (
+                                    "street".to_string(),
+                                    DocumentValue::String("123 Main St".to_string()),
+                                ),
+                                (
+                                    "city".to_string(),
+                                    DocumentValue::String("New York".to_string()),
+                                ),
+                            ])),
+                        ),
+                    ])),
+                ),
+                (
+                    "products".to_string(),
+                    DocumentValue::Array(vec![
+                        DocumentValue::Object(HashMap::from([
+                            (
+                                "name".to_string(),
+                                DocumentValue::String("Phone".to_string()),
+                            ),
+                            ("price".to_string(), DocumentValue::Number(999.99)),
+                        ])),
+                        DocumentValue::Object(HashMap::from([
+                            (
+                                "name".to_string(),
+                                DocumentValue::String("Laptop".to_string()),
+                            ),
+                            ("price".to_string(), DocumentValue::Number(1500.0)),
+                        ])),
+                    ]),
+                ),
+            ]),
+        };
+
+        let result = parse_json_to_document_record(json).unwrap();
+        assert_eq!(result, expected);
+        println!("Parsed DocumentRecord: {:?}", result);
     }
 }

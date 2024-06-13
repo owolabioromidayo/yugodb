@@ -92,8 +92,16 @@ impl<'a> Tokenizer<'a> {
             '\n' => {
                 self.line += 1;
             }
-            '\'' => self.string(),
-            '"' => self.string(),
+            '\'' => self.string('\''),
+            '"' => {
+                if self.match_char('{') {
+                    //we have a json string to deal with
+                    //collect everything until we get a }"
+                    self.json_string()
+                } else {
+                    self.string('"')
+                }
+            }
             _ => {
                 if is_digit(c) {
                     self.number();
@@ -101,6 +109,7 @@ impl<'a> Tokenizer<'a> {
                     self.identifier();
                 } else {
                     // Handle unexpected characters
+                    println!("ScanError on {} {} {} ", c, self.line, self.current);
                     return Err(Error::ScanError);
                 }
             }
@@ -157,6 +166,10 @@ impl<'a> Tokenizer<'a> {
             "sum",
             "count",
             "count_distinct",
+            "create_table",
+            "create_db",
+            "insert",
+            "delete",
         ];
 
         let token = keywords.get(&text as &str);
@@ -221,8 +234,8 @@ impl<'a> Tokenizer<'a> {
         self.add_token(TokenType::Number, Some(text));
     }
 
-    fn string(&mut self) {
-        while self.peek() != '"' && !self.is_at_end() {
+    fn string(&mut self, quote: char) {
+        while self.peek() != quote && !self.is_at_end() {
             if self.peek() == '\n' {
                 self.line += 1;
             }
@@ -240,6 +253,32 @@ impl<'a> Tokenizer<'a> {
         let text: String = self.source[self.start + 1..self.current - 1]
             .chars()
             .collect();
+        self.add_token(TokenType::String, Some(text));
+    }
+
+    fn json_string(&mut self) {
+        println!("Parsing json string now");
+        while self.peek() != '}' && self.peek_next() != '"' && !self.is_at_end() {
+            if self.peek() == '\n' {
+                self.line += 1;
+            }
+            self.advance();
+        }
+
+        if self.is_at_end() {
+            // Handle unterminated string error
+            return;
+        }
+
+        // Closing quotes
+        self.advance();
+        self.advance();
+
+        let text: String = self.source[self.start + 1..self.current - 1]
+            .chars()
+            .collect();
+
+        println!("Done w json string : {:?}", text);
         self.add_token(TokenType::String, Some(text));
     }
 

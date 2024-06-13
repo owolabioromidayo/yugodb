@@ -80,6 +80,10 @@ pub enum MethodType{
     Sum, 
     Count, 
     CountDistinct,
+    CreateTable,
+    CreateDB,
+    Insert,
+    Delete,
     Illegal
 }
 
@@ -125,6 +129,10 @@ impl MethodType {
             "sum" => MethodType::Sum,
             "count" => MethodType::Count,
             "count_distinct" => MethodType::CountDistinct,
+            "create_table" => MethodType::CreateTable,
+            "create_db" => MethodType::CreateDB,
+            "insert" => MethodType::Insert,
+            "delete" => MethodType::Delete,
             _ => MethodType::Illegal
             
         }

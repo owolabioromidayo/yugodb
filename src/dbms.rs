@@ -57,8 +57,87 @@ mod tests {
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use std::borrow::BorrowMut;
+    use std::rc::Rc;
+    use std::cell::RefCell;
 
     use super::*;
+
+    #[test]
+    fn test_full_pipeline_two_document_tables_with_dbms_calls(){
+        let mut tokenizer = Tokenizer::new(
+            r#"
+        dbs.create_db('test_db');
+        dbs.create_table('test_db' ,'test_table', 'DOCUMENT', 'ROW');
+        dbs.create_table('test_db' ,'test_rtable', 'DOCUMENT', 'ROW');
+
+        dbs.insert('test_db', 'test_table', "{
+                "id": 0,
+                "name": "John Doe",
+                "age": 30.0,
+                "city": "New York",
+                "address": {
+                    "street": "123 Main St",
+                    "zip": "10001"
+                },
+                "phone_numbers": [
+                    "123-456-7890",
+                    "987-654-3210"
+                ]
+        }");
+
+        dbs.insert('test_db', 'test_table', "{
+            "id": 1,
+            "name": "Jane Smith",
+            "age": 25.0,
+            "city": "London",
+            "address": {
+                "street": "456 High St",
+                "zip": "SW1A 1AA"
+            },
+            "phone_numbers": [
+                "020-1234-5678"
+            ],
+            "employment": {
+                "company": "Acme Inc.",
+                "position": "Software Engineer",
+                "start_date": {
+                "year": 2022.0,
+                "month": 1.0
+                }
+            }
+            }");
+
+        dbs.insert('test_db', 'test_rtable', "{
+            "id": 0,
+            "name": "Jane Smith",
+            "balance": 1003434343.4445D
+        }");
+
+        dbs.insert('test_db', 'test_rtable', "{
+            "id": 1,
+            "name": "John Doe",
+            "balance": 92381893.4445D
+        }");
+
+        let x = dbs.test_db.test_table.offset(0);  
+        let y = dbs.test_db.test_rtable.offset(0);  
+        //x.limit(10);
+        // y.limit(10);
+        let z  = x LJOIN y ON name=name;
+        z.limit(10);
+
+      
+        "#,
+        );
+
+        let tokens = tokenizer.scan_tokens().unwrap();
+        println!("Tokens: {:?}", tokens);
+        let mut tree = Parser::new(tokens);
+        let statements = tree.parse();
+        println!("\n\n\n Statements: {:?}", statements);
+
+
+    }
 
     //TODO: test insert relational row
     //TODO: test one command, seems to err out in that scenario, just add a nil template?
@@ -96,12 +175,13 @@ mod tests {
             curr_row_id: 0,
             page_index: HashMap::new(),
             default_index: BPTreeInternalNode::new(),
+            pager: Rc::new(RefCell::new(Pager::new("test_db-test_table".to_string()))),
             // default_index: BPTreeInternalNode::new(),
             indexes: HashMap::new(),
         };
 
         let mut rtable = Table {
-            name: "test_table".to_string(),
+            name: "test_rtable".to_string(),
             schema: Schema::new(),
             _type: TableType::Document,
             storage_method: StorageModel::Row,
@@ -109,6 +189,7 @@ mod tests {
             curr_row_id: 0,
             page_index: HashMap::new(),
             default_index: BPTreeInternalNode::new(),
+            pager: Rc::new(RefCell::new(Pager::new("test_db-test_rtable".to_string()))),
             // default_index: BPTreeInternalNode::new(),
             indexes: HashMap::new(),
         };
@@ -234,18 +315,18 @@ mod tests {
         let mut db = Database::new("test_db".to_string());
 
         //initialize 10 pages
-        for _ in 0..10 {
-            match db.pager.try_borrow_mut() {
-                Ok(mut pager) => {
-                    pager.create_new_page().unwrap();
-                    ()
-                }
-                Err(err) => {
-                    println!("{:?}", err)
-                }
-            }
+        // for _ in 0..10 {
+        //     match db.pager.try_borrow_mut() {
+        //         Ok(mut pager) => {
+        //             pager.create_new_page().unwrap();
+        //             ()
+        //         }
+        //         Err(err) => {
+        //             println!("{:?}", err)
+        //         }
+        //     }
             // (*db.pager).borrow_mut().create_new_page().unwrap();
-        }
+        // }
 
         db.tables.insert("test_table".to_string(), table);
         db.tables.insert("test_rtable".to_string(), rtable);
@@ -293,12 +374,12 @@ mod tests {
         let table2 = db1.get_table(&"test_rtable".to_string()).unwrap();
         println!("Table index {:?}", &table1.default_index);
 
-        let page = (*db1.pager)
+        let page = (*table1.pager)
             .borrow_mut()
             .get_page_or_force(table1.curr_page_id)
             .unwrap();
 
-        let rpage = (*db1.pager)
+        let rpage = (*table2.pager)
             .borrow_mut()
             .get_page_or_force(table2.curr_page_id)
             .unwrap();
@@ -357,6 +438,7 @@ mod tests {
             curr_page_id: 0,
             curr_row_id: 0,
             page_index: HashMap::new(),
+            pager: Rc::new(RefCell::new(Pager::new("test_db-test_table".to_string()))),
             default_index: BPTreeInternalNode::new(),
             // default_index: BPTreeInternalNode::new(),
             indexes: HashMap::new(),
@@ -377,6 +459,7 @@ mod tests {
             storage_method: StorageModel::Row,
             curr_page_id: 1,
             curr_row_id: 0,
+            pager: Rc::new(RefCell::new(Pager::new("test_db-test_rtable".to_string()))),
             page_index: HashMap::new(),
             default_index: BPTreeInternalNode::new(),
             // default_index: BPTreeInternalNode::new(),
@@ -503,18 +586,18 @@ mod tests {
         let mut db = Database::new("test_db".to_string());
 
         //initialize 10 pages
-        for _ in 0..10 {
-            match db.pager.try_borrow_mut() {
-                Ok(mut pager) => {
-                    pager.create_new_page().unwrap();
-                    ()
-                }
-                Err(err) => {
-                    println!("{:?}", err)
-                }
-            }
-            // (*db.pager).borrow_mut().create_new_page().unwrap();
-        }
+        // for _ in 0..10 {
+        //     match db.pager.try_borrow_mut() {
+        //         Ok(mut pager) => {
+        //             pager.create_new_page().unwrap();
+        //             ()
+        //         }
+        //         Err(err) => {
+        //             println!("{:?}", err)
+        //         }
+        //     }
+        //     // (*db.pager).borrow_mut().create_new_page().unwrap();
+        // }
 
         db.tables.insert("test_table".to_string(), table);
         db.tables.insert("test_rtable".to_string(), rtable);
@@ -562,12 +645,12 @@ mod tests {
         let table2 = db1.get_table(&"test_rtable".to_string()).unwrap();
         println!("Table index {:?}", &table1.default_index);
 
-        let page = (*db1.pager)
+        let page = (*table1.pager)
             .borrow_mut()
             .get_page_or_force(table1.curr_page_id)
             .unwrap();
 
-        let rpage = (*db1.pager)
+        let rpage = (*table2.pager)
             .borrow_mut()
             .get_page_or_force(table2.curr_page_id)
             .unwrap();

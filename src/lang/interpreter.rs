@@ -3,14 +3,17 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
 
+use crate::btree::*;
 use crate::database::*;
 use crate::dbms::*;
 use crate::error::*;
 use crate::lang::ast::*;
+use crate::lang::parser::*;
 use crate::lang::types::*;
 use crate::pager::*;
 use crate::record::*;
 use crate::record_iterator::*;
+use crate::schema::*;
 use crate::table::*;
 use std::clone::Clone;
 use std::fmt;
@@ -358,7 +361,6 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for 
 
     fn visit_data_call(&self, expr: &DataCall) -> Result<IterClosure> {
         // we need special support for system level prompts
-
         println!("Evaluating datacall {:?}", &expr);
 
         let mut db_name = String::new();
@@ -483,8 +485,7 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for 
                         // }
                         // println!("RCHUNK {:?}, RPRED  {:?}, RIGHT {:?}", &r_chunk, &rpred, right.borrow());
 
-                        // this is wrong, not even a join
-
+                        //TODO: RIGHT NOW, THIS IS JUST AN INCOMPLETE N^2 algorithm, need all the chunks on the right
                         for (l, r) in l_chunk.iter_mut().zip(r_chunk.iter()) {
                             match (l, r) {
                                 (Records::DocumentRows(x), Records::DocumentRows(y)) => {
@@ -645,6 +646,7 @@ impl Interpreter {
                     }
                 }
                 MethodType::Select => {}
+                //support for more things, creata_db, create_table, insert, delete
                 _ => unimplemented!(),
             }
         }
@@ -705,6 +707,264 @@ impl Interpreter {
     // pub fn evaluate_predicate(&mut self, expr: &Expr) -> Result<PredicateClosure> {
 
     // }
+
+    pub fn visit_dbms_call_or_pass(&self, dbms: &mut DBMS, expr: &Expr) -> Result<()> {
+        //lot of err information is missed by doing this bool thing, should change later
+        // need to rework it so we can calssify the error type outside, know if real failure or not
+        // lotta things need refactoring
+
+        // so we have DBMSCall, TypeError, then everything else should be unknown
+
+        match expr {
+            Expr::DataCall(e) => {
+                println!("Evaluating dbms operation {:?}", &e);
+
+                // let mut db_name = String::new();
+                // let mut table_name = String::new();
+
+                // we are expecting dbs.db_name.table_name.transformation()...
+                let tokens: Vec<String> = e.attr.tokens.iter().map(|x| x.lexeme.clone()).collect();
+
+                //should be at least one val right
+                match tokens[0].as_str() {
+                    "dbs" => {
+                        if e.methods.len() != 1 {
+                            return Err(Error::Unknown(("not a dbms call".to_string())));
+                        }
+
+                        let mut resolved_args: Vec<Literal> = Vec::new();
+                        for arg in &e.arguments[0] {
+                            match self.evaluate_lower(arg) {
+                                Ok(x) => resolved_args.push(x),
+                                Err(e) => {
+                                    return Err(Error::Unknown(
+                                        ("unresolvable argument error".to_string()),
+                                    ))
+                                }
+                            }
+                        }
+
+                        match &e.methods[0] {
+                            MethodType::CreateDB => {
+                                if resolved_args.len() != 1 {
+                                    return Err(Error::TypeError(
+                                        "create_db(name: string).".to_string(),
+                                    ));
+                                }
+                                match &resolved_args[0].value.value {
+                                    ValueData::String(x) => {
+                                        //create db if not exists.
+                                        if dbms.databases.contains_key(x) {
+                                            return Err(Error::Unknown(
+                                                "Database name already exists".to_string(),
+                                            ));
+                                        }
+                                        let db = Database::new(x.clone());
+                                        dbms.databases.insert(x.clone(), db);
+                                        return Ok(());
+                                    }
+                                    _ => {
+                                        return Err(Error::TypeError(
+                                            "name should be STRING for create_db(name: string) ."
+                                                .to_string(),
+                                        ))
+                                    }
+                                }
+                            }
+                            MethodType::CreateTable => {
+                                //holup, are we using strings for this shit?
+                                if resolved_args.len() < 4 {
+                                    return Err(Error::TypeError(
+                                    "create_table(db_name:string, table_name: string, DOCUMENT | RELATIONAL, ROW | COLUMN, schema: json_string (OPTIONAL)).".to_string(),
+                                ));
+                                }
+
+                                if let (
+                                    ValueData::String(db_name),
+                                    ValueData::String(table_name),
+                                    ValueData::String(table_type),
+                                    ValueData::String(storage_model),
+                                ) = (
+                                    &resolved_args[0].value.value,
+                                    &resolved_args[1].value.value,
+                                    &resolved_args[2].value.value,
+                                    &resolved_args[3].value.value,
+                                ) {
+                                    //try fetch db
+                                    let mut db = match dbms.databases.get_mut(db_name) {
+                                        Some(x) => x,
+                                        _ => {
+                                            return Err(Error::DBMSCall(
+                                                "Database does not exist".to_string(),
+                                            ))
+                                        }
+                                    };
+
+                                    let _type = match table_type.as_str().trim() {
+                                        "DOCUMENT" => TableType::Document,
+                                        "RELATIONAL" => TableType::Relational,
+                                        _ => {
+                                            return Err(Error::TypeError(
+                                                "unsupported table type".to_string(),
+                                            ))
+                                        }
+                                    };
+
+                                    let storage = match storage_model.as_str().trim() {
+                                        "ROW" => StorageModel::Row,
+                                        "COLUMN" => StorageModel::Column,
+                                        _ => {
+                                            return Err(Error::TypeError(
+                                                "unsupported storage model".to_string(),
+                                            ))
+                                        }
+                                    };
+
+                                    if matches!(_type, TableType::Relational) {
+                                        // we expect a schema
+                                        if resolved_args.len() >= 5 {
+                                            if let ValueData::String(schema) =
+                                                &resolved_args[3].value.value
+                                            {
+                                                // we should json deser it and match, pain
+
+                                                let new_table = Table {
+                                                    name: table_name.to_string(),
+                                                    schema: Schema::new(),
+                                                    _type: _type,
+                                                    storage_method: storage,
+                                                    pager: Rc::new(RefCell::new(Pager::new(
+                                                        format!("{}-{}", db_name, table_name),
+                                                    ))),
+
+                                                    //fix this, should get available page
+                                                    curr_page_id: 0,
+                                                    curr_row_id: 0,
+                                                    page_index: HashMap::new(),
+                                                    default_index: BPTreeInternalNode::new(),
+                                                    // default_index: BPTreeInternalNode::new(),
+                                                    indexes: HashMap::new(),
+                                                };
+                                                db.tables.insert(table_name.clone(), new_table);
+
+                                                return Ok(());
+                                            } else {
+                                                return Err(Error::TypeError(
+                                                    "Schema field should be a JSON string"
+                                                        .to_string(),
+                                                ));
+                                            }
+                                        }
+                                        return Err(Error::DBMSCall(
+                                            "Schema field expected for relational table creation"
+                                                .to_string(),
+                                        ));
+                                    }
+
+                                    let new_table = Table {
+                                        name: table_name.to_string(),
+                                        schema: Schema::new(),
+                                        _type: _type,
+                                        storage_method: storage,
+                                        pager: Rc::new(RefCell::new(Pager::new(format!(
+                                            "{}-{}",
+                                            db_name, table_name
+                                        )))),
+                                        curr_page_id: 0,
+                                        curr_row_id: 0,
+                                        page_index: HashMap::new(),
+                                        default_index: BPTreeInternalNode::new(),
+                                        indexes: HashMap::new(),
+                                    };
+                                    db.tables.insert(table_name.clone(), new_table);
+
+                                    Ok(())
+                                } else {
+                                    return Err(Error::DBMSCall(
+                                        "Unsupported values for create_table method".to_string(),
+                                    ));
+                                }
+                            }
+                            MethodType::Insert => {
+                                //holup, are we using strings for this shit?
+                                if resolved_args.len() < 4 {
+                                    return Err(Error::TypeError(
+                                    "insert(db_name:string, table_name: string, record: json_string).".to_string(),
+                                ));
+                                }
+
+                                if let (
+                                    ValueData::String(db_name),
+                                    ValueData::String(table_name),
+                                    ValueData::String(record_str),
+                                ) = (
+                                    &resolved_args[0].value.value,
+                                    &resolved_args[1].value.value,
+                                    &resolved_args[2].value.value,
+                                ) {
+                                    //try fetch db
+                                    let db = match dbms.databases.get_mut(db_name) {
+                                        Some(x) => x,
+                                        _ => {
+                                            return Err(Error::DBMSCall(
+                                                "Database does not exist".to_string(),
+                                            ))
+                                        }
+                                    };
+
+                                    //try fetch table
+                                    let table = match db.tables.get(table_name) {
+                                        Some(x) => x,
+                                        _ => {
+                                            return Err(Error::DBMSCall(
+                                                "Table does not exist".to_string(),
+                                            ))
+                                        }
+                                    };
+
+                                    match &table._type {
+                                        TableType::Document => {
+                                            match parse_json_to_document_record(record_str.as_str())
+                                            {
+                                                Ok(record) => {
+                                                    let _ =
+                                                        db.insert_document_row(table_name, record);
+                                                    return Ok(());
+                                                }
+                                                Err(e) => return Err(e),
+                                            }
+                                        }
+                                        TableType::Relational => unimplemented!(),
+                                    }
+
+                                    Ok(())
+                                } else {
+                                    return Err(Error::DBMSCall(
+                                        "Unsupported argument values for insert method".to_string(),
+                                    ));
+                                }
+                            }
+                            _ => {
+                                return Err(Error::Unknown(
+                                    "Method is not a db system call".to_string(),
+                                ))
+                            }
+                        }
+                    }
+                    tok => {
+                        return Err(Error::Unknown(
+                            "Method is not a db system call (does not start with dbs)".to_string(),
+                        ));
+                    }
+                }
+            }
+            _ => {
+                return Err(Error::Unknown(
+                    "Method is not a db system call (not a datacall expr=)".to_string(),
+                ))
+            }
+        }
+    }
 
     pub fn evaluate_call(&self, expr: &Expr) -> Result<IterClosure> {
         let res = match &expr {
@@ -817,7 +1077,7 @@ impl Interpreter {
         // i mean we can just do everything here, since its linear
         // oh, we cant do that, no , we can
         // when all the evaluations are set and done, we just pull from the final expr
-        for (root, stmts) in self.statements.split_last() {
+        if let Some((root, stmts)) = self.statements.split_last() {
             for stmt in stmts {
                 match stmt {
                     Stmt::Var(s) => {
@@ -825,6 +1085,17 @@ impl Interpreter {
                             .insert(s.name.lexeme.clone(), self.evaluate(&s.initializer)?);
                     }
                     Stmt::Expression(s) => {
+                        // lets try the dbms cal lhere
+
+                        //try evaluate as DBMS call
+                        match self.visit_dbms_call_or_pass(dbms, &s.expression) {
+                            Ok(_) => (),
+                            Err(e) => match e {
+                                Error::TypeError(_) => return Err(e),
+                                Error::DBMSCall(_) => return Err(e),
+                                _ => (), // other errors like unknown are allowed to roam free
+                            },
+                        }
                         self.evaluate(&s.expression);
                     }
                     _ => unimplemented!(),

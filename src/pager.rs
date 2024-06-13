@@ -125,13 +125,17 @@ impl FileInfo {
 // TODO: all communication should be with the pager directly, not with the pagecache
 impl Pager {
     pub fn new(fname_prefix: String) -> Pager {
-        Pager {
+        let mut pager = Pager {
             fname_prefix,
             file_map: HashMap::new(),
             cache: Rc::new(RefCell::new(PageCache::new())),
             page_index_map: HashMap::new(),
             page_count: 0 as usize,
+        };
+        for _ in 0..3 {
+            pager.create_new_page().unwrap();
         }
+        pager
     }
 
     pub fn create_new_page(&mut self) -> Result<Page> {
