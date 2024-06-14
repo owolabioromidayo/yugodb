@@ -761,6 +761,7 @@ impl Interpreter {
                                         }
                                         let db = Database::new(x.clone());
                                         dbms.databases.insert(x.clone(), db);
+                                        println!("New database created!");
                                         return Ok(());
                                     }
                                     _ => {
@@ -846,6 +847,10 @@ impl Interpreter {
                                                     indexes: HashMap::new(),
                                                 };
                                                 db.tables.insert(table_name.clone(), new_table);
+                                                println!(
+                                                    "\n\nNew table created! : {} in {} \n\n ",
+                                                    table_name, db_name
+                                                );
 
                                                 return Ok(());
                                             } else {
@@ -859,24 +864,28 @@ impl Interpreter {
                                             "Schema field expected for relational table creation"
                                                 .to_string(),
                                         ));
+                                    } else {
+                                        let new_table = Table {
+                                            name: table_name.to_string(),
+                                            schema: Schema::new(),
+                                            _type: _type,
+                                            storage_method: storage,
+                                            pager: Rc::new(RefCell::new(Pager::new(format!(
+                                                "{}-{}",
+                                                db_name, table_name
+                                            )))),
+                                            curr_page_id: 0,
+                                            curr_row_id: 0,
+                                            page_index: HashMap::new(),
+                                            default_index: BPTreeInternalNode::new(),
+                                            indexes: HashMap::new(),
+                                        };
+                                        db.tables.insert(table_name.clone(), new_table);
+                                        println!(
+                                            "\n\nNew table created! : {} in {} \n\n ",
+                                            table_name, db_name
+                                        );
                                     }
-
-                                    let new_table = Table {
-                                        name: table_name.to_string(),
-                                        schema: Schema::new(),
-                                        _type: _type,
-                                        storage_method: storage,
-                                        pager: Rc::new(RefCell::new(Pager::new(format!(
-                                            "{}-{}",
-                                            db_name, table_name
-                                        )))),
-                                        curr_page_id: 0,
-                                        curr_row_id: 0,
-                                        page_index: HashMap::new(),
-                                        default_index: BPTreeInternalNode::new(),
-                                        indexes: HashMap::new(),
-                                    };
-                                    db.tables.insert(table_name.clone(), new_table);
 
                                     Ok(())
                                 } else {
@@ -887,7 +896,7 @@ impl Interpreter {
                             }
                             MethodType::Insert => {
                                 //holup, are we using strings for this shit?
-                                if resolved_args.len() < 4 {
+                                if resolved_args.len() != 3 {
                                     return Err(Error::TypeError(
                                     "insert(db_name:string, table_name: string, record: json_string).".to_string(),
                                 ));
@@ -1093,10 +1102,13 @@ impl Interpreter {
                             Err(e) => match e {
                                 Error::TypeError(_) => return Err(e),
                                 Error::DBMSCall(_) => return Err(e),
-                                _ => (), // other errors like unknown are allowed to roam free
+                                e => {
+                                    println!("{:?}", e); // other errors like unknown are allowed to roam free
+                                                         //if none of the above happens, then just execute it as a normal expression
+                                    self.evaluate(&s.expression)?;
+                                }
                             },
                         }
-                        self.evaluate(&s.expression);
                     }
                     _ => unimplemented!(),
                 }

@@ -61,29 +61,27 @@ impl Table {
     }
     // need to be able to package into new pages and update index(es)
 
-    pub fn insert_relational_row(
-        &mut self,
-        row: RelationalRecord,
-    ) -> Result<()> {
+    pub fn insert_relational_row(&mut self, row: RelationalRecord) -> Result<()> {
         let id = match row.id {
             Some(x) => x.clone(),
-            None => self.curr_row_id+ 1,
+            None => self.curr_row_id + 1,
         };
         // unimplemented!()
-        let mut pager = ((*self.pager).borrow_mut()); 
+
+        //TODO:fix this to Rc::clone try_borrwo_mut
+        let mut pager = ((*self.pager).borrow_mut());
         let schema = match &self.schema {
             Schema::Relational(x) => x,
             _ => panic!("Unsupported schema type for relational record"),
         };
 
         let curr_page = pager.get_page_or_force(self.curr_page_id)?;
-        let mut relational_page= match RelationalRecordPage::deserialize(
-            &(*curr_page).borrow_mut().read_all(),
-            &schema,
-        ) {
-            Ok(page) => page,
-            Err(_) => RelationalRecordPage::new(),
-        };
+        let mut relational_page =
+            match RelationalRecordPage::deserialize(&(*curr_page).borrow_mut().read_all(), &schema)
+            {
+                Ok(page) => page,
+                Err(_) => RelationalRecordPage::new(),
+            };
 
         let new_data = row.serialize(&schema);
         if new_data.len() > PAGE_SIZE_BYTES {
@@ -101,8 +99,7 @@ impl Table {
             new_page.write_all(new_relational_page.serialize(schema));
             self.curr_page_id += 1;
             self.page_index.insert(new_page.index, self.curr_page_id);
-            self.default_index
-                .insert(id, (self.curr_page_id, 0, 0))?;
+            self.default_index.insert(id, (self.curr_page_id, 0, 0))?;
 
             pager.flush_page(&new_page)?;
         } else {
@@ -145,56 +142,59 @@ impl Table {
     pub fn insert_document_row(&mut self, row: DocumentRecord) -> Result<()> {
         //TODO: the table should check whether its a document table  or not
 
-        let mut pager = ((*self.pager).borrow_mut()); 
+        // let mut pager = ((*self.pager).borrow_mut());
 
-        let id = match row.id {
-            Some(x) => x.clone(),
-            None => self.curr_row_id+ 1,
-        };
-        let mut curr_page = pager.get_page_or_force(self.curr_page_id)?;
-        let mut document_page =
-            match DocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all())
-            {
-                Ok(page) => page,
-                Err(_) => DocumentRecordPage::new(),
+        if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
+            let id = match row.id {
+                Some(x) => x.clone(),
+                None => self.curr_row_id + 1,
             };
-        let new_data = row.serialize()?;
-        if new_data.len() > PAGE_SIZE_BYTES {
+            let mut curr_page = pager.get_page_or_force(self.curr_page_id)?;
+            let mut document_page =
+                match DocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all()) {
+                    Ok(page) => page,
+                    Err(_) => DocumentRecordPage::new(),
+                };
+            let new_data = row.serialize()?;
+            if new_data.len() > PAGE_SIZE_BYTES {
+                return Err(Error::Unknown(
+                    "Document size too large to be written to page".to_string(),
+                ));
+            }
+
+            if bson::to_vec(&document_page)?.len() + new_data.len() > PAGE_SIZE_BYTES {
+                // Create a new page if adding the new record exceeds the page size
+                let mut new_page = pager.create_new_page()?;
+                let mut new_document_page = DocumentRecordPage::new();
+                new_document_page.add_record(row);
+                new_page.write_all(bson::to_vec(&new_document_page)?);
+                self.curr_page_id += 1;
+                self.page_index.insert(new_page.index, self.curr_page_id);
+                self.default_index.insert(id, (self.curr_page_id, 0, 0))?;
+
+                println!("Index after insertion full: {:?}", &self.default_index);
+                pager.flush_page(&new_page)?;
+            } else {
+                // Append the record to the current page
+                document_page.add_record(row);
+                (*curr_page)
+                    .borrow_mut()
+                    .write_all(bson::to_vec(&document_page)?);
+                self.default_index
+                    .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0))
+                    .unwrap(); // TODO: can offset be useful here?
+                               // , no since we are just doing it on page creation
+                self.curr_row_id += 1;
+                println!("index after insertion{:?}", &self.default_index);
+                pager.flush_page(&(*curr_page).borrow_mut())?;
+                // self.curr_page_id
+            }
+            return Ok(());
+        } else {
             return Err(Error::Unknown(
-                "Document size too large to be written to page".to_string(),
+                "Failed to borrow cache mutably from here".to_string(),
             ));
         }
-
-        if bson::to_vec(&document_page)?.len() + new_data.len() > PAGE_SIZE_BYTES {
-            // Create a new page if adding the new record exceeds the page size
-            let mut new_page = pager.create_new_page()?;
-            let mut new_document_page = DocumentRecordPage::new();
-            new_document_page.add_record(row);
-            new_page.write_all(bson::to_vec(&new_document_page)?);
-            self.curr_page_id += 1;
-            self.page_index.insert(new_page.index, self.curr_page_id);
-            self.default_index
-                .insert(id, (self.curr_page_id, 0, 0))?;
-            
-            println!("Index after insertion full: {:?}", &self.default_index);
-            pager.flush_page(&new_page)?;
-        } else {
-            // Append the record to the current page
-            document_page.add_record(row);
-            (*curr_page)
-               
-                .borrow_mut()
-                .write_all(bson::to_vec(&document_page)?);
-            self.default_index
-                .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0))
-                .unwrap(); // TODO: can offset be useful here?
-                           // , no since we are just doing it on page creation
-            self.curr_row_id += 1;
-            println!("index after insertion{:?}", &self.default_index);
-            pager.flush_page(&(*curr_page).borrow_mut())?;
-            // self.curr_page_id
-        }
-        Ok(())
     }
 
     pub fn insert_document_rows(pager: &Pager, rows: Vec<DocumentRecord>) {
@@ -204,54 +204,48 @@ impl Table {
         // then create new pages here
     }
 
-    pub fn get_document_rows_in_range(
-        &self,
-        start: usize,
-        end: usize,
-    ) -> Result<Records> {
+    pub fn get_document_rows_in_range(&self, start: usize, end: usize) -> Result<Records> {
         let mut records = Vec::new();
-        let mut pager = ((*self.pager).borrow_mut()); 
+        if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
+            println!("Getting rows in range {} - {}", start, end);
+            println!("Index: {:?}", &self.default_index);
 
-        println!("Getting rows in range {} - {}", start, end);
-        println!("Index: {:?}", &self.default_index);
+            for row_id in start..=end {
+                // Get the page and offset for the current row ID from the default index
+                if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
+                    println!("Record found");
+                    // Fetch the page from the pager
+                    let page = pager.get_page_or_force(*page_id)?;
 
-        for row_id in start..=end {
-            // Get the page and offset for the current row ID from the default index
-            if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
-                println!("Record found");
-                // Fetch the page from the pager
-                let page = pager.get_page_or_force(*page_id)?;
+                    let document_page =
+                        match DocumentRecordPage::deserialize(&(*page).borrow_mut().read_all()) {
+                            Ok(page) => page,
+                            Err(_) => continue, // Skip if deser fails ? Do we panic instead?
+                        };
 
-                let document_page =
-                    match DocumentRecordPage::deserialize(&(*page).borrow_mut().read_all() ) {
-                        Ok(page) => page,
-                        Err(_) => continue, // Skip if deser fails ? Do we panic instead?
-                    };
-
-                //TODO: so the offset value should be the index in the page vec?
-                // how about we just deserialize that portion then?
-                // would need to change our document serialization strat, make it more custom
-                if let Some(record) = document_page.records.get(*offset as usize) {
-                    //feels wasteful man
-                    println!("Gotten record {:?} ", &record);
-                    records.push(record.clone());
+                    //TODO: so the offset value should be the index in the page vec?
+                    // how about we just deserialize that portion then?
+                    // would need to change our document serialization strat, make it more custom
+                    if let Some(record) = document_page.records.get(*offset as usize) {
+                        //feels wasteful man
+                        println!("Gotten record {:?} ", &record);
+                        records.push(record.clone());
+                    }
                 }
             }
-        }
 
-        Ok(Records::DocumentRows(records))
+            Ok(Records::DocumentRows(records))
+        } else {
+            return Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ));
+        }
     }
 
-    pub fn get_rows_in_range(
-        &mut self,
-        start: usize,
-        end: usize,
-    ) -> Result<Records> {
-        let mut pager = ((*self.pager).borrow_mut()); 
-
+    pub fn get_rows_in_range(&mut self, start: usize, end: usize) -> Result<Records> {
         match (&self._type, &self.storage_method) {
             (TableType::Document, StorageModel::Row) => {
-                return self.get_document_rows_in_range( start, end)
+                return self.get_document_rows_in_range(start, end)
             }
             _ => unimplemented!(),
         }
@@ -489,5 +483,5 @@ impl Table {
 //         assert_eq!(relational_page.records[0], record1);
 //         assert_eq!(relational_page.records[1], record2);
 //     }
-    
+
 // }

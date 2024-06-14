@@ -96,10 +96,9 @@ impl Page {
 
     pub fn clear(&mut self) {
         let mut bytes = self.bytes.write();
-        bytes[0..PAGE_SIZE_BYTES].fill(0 as u8); 
+        bytes[0..PAGE_SIZE_BYTES].fill(0 as u8);
         *self.dirty.write() = true;
     }
-
 
     pub fn write_all(&self, mut data: Vec<u8>) {
         //bytes should maintain the lock till the end of this code, so bytes and dirty work together fine
@@ -122,7 +121,6 @@ impl FileInfo {
 }
 
 // TODO : serialize and deserialize pager information
-// TODO: all communication should be with the pager directly, not with the pagecache
 impl Pager {
     pub fn new(fname_prefix: String) -> Pager {
         let mut pager = Pager {
@@ -132,7 +130,7 @@ impl Pager {
             page_index_map: HashMap::new(),
             page_count: 0 as usize,
         };
-        for _ in 0..3 {
+        for _ in 0..2 {
             pager.create_new_page().unwrap();
         }
         pager

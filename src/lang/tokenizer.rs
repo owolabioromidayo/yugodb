@@ -92,7 +92,15 @@ impl<'a> Tokenizer<'a> {
             '\n' => {
                 self.line += 1;
             }
-            '\'' => self.string('\''),
+            '\'' => {
+                if self.match_char('{') {
+                    //we have a json string to deal with
+                    //collect everything until we get a }'
+                    self.json_string()
+                } else {
+                    self.string('\'')
+                }
+            }
             '"' => {
                 if self.match_char('{') {
                     //we have a json string to deal with
@@ -109,7 +117,14 @@ impl<'a> Tokenizer<'a> {
                     self.identifier();
                 } else {
                     // Handle unexpected characters
-                    println!("ScanError on {} {} {} ", c, self.line, self.current);
+                    println!(
+                        "ScanError on {} {} {} {:?} {:?} ",
+                        c,
+                        self.line,
+                        self.current,
+                        self.tokens,
+                        self.source[self.current..self.source.len()].chars()
+                    );
                     return Err(Error::ScanError);
                 }
             }
@@ -256,30 +271,46 @@ impl<'a> Tokenizer<'a> {
         self.add_token(TokenType::String, Some(text));
     }
 
+    // needs proper error handling, otherwise program will never run
     fn json_string(&mut self) {
         println!("Parsing json string now");
-        while self.peek() != '}' && self.peek_next() != '"' && !self.is_at_end() {
-            if self.peek() == '\n' {
-                self.line += 1;
-            }
-            self.advance();
-        }
 
-        if self.is_at_end() {
-            // Handle unterminated string error
-            return;
+        while (true) {
+            if self.peek() == '}' {
+                self.advance();
+                if self.peek() == '\'' {
+                    self.advance();
+
+                    if self.is_at_end() {
+                        println!("We at the end somehow");
+                        //maybe an error
+                        return;
+                    }
+
+                    let text: String = self.source[self.start + 1..self.current - 1]
+                        .chars()
+                        .collect();
+
+                    self.add_token(TokenType::String, Some(text.clone()));
+                    println!("Done w json string : {:?}", text);
+
+                    return;
+                }
+            } else {
+                // println!("TOken {} next token {} ", self.peek(), self.peek_next());
+                if self.is_at_end() {
+                    println!("We at the end somehow");
+                    //maybe an error
+                    return;
+                }
+                if self.peek() == '\n' || self.peek() == '\\' {
+                    self.line += 1;
+                }
+                self.advance();
+            }
         }
 
         // Closing quotes
-        self.advance();
-        self.advance();
-
-        let text: String = self.source[self.start + 1..self.current - 1]
-            .chars()
-            .collect();
-
-        println!("Done w json string : {:?}", text);
-        self.add_token(TokenType::String, Some(text));
     }
 
     fn peek(&self) -> char {
