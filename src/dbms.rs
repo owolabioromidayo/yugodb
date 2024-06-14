@@ -111,13 +111,13 @@ mod tests {
         dbs.insert('test_db', 'test_rtable', '{
             'id': 0,
             'name': 'Jane Smith',
-            'balance': 1003434343.4445
+            'balance': '1003434343.4445D'
         }');
 
         dbs.insert('test_db', 'test_rtable', '{
             'id': 1,
             'name': 'John Doe',
-            'balance': 92381893.4445
+            'balance': '92381893.4445D'
         }');
 
 
