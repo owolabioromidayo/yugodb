@@ -69,7 +69,7 @@ fn parse_json_value_to_document_value(value: serde_json::Value) -> DocumentValue
 
 pub fn parse_json_to_relational_schema(json: &str) -> Result<RelationalSchema> {
     let jsona = json.replace("'", "\"");
-    println!("{}c", jsona);
+    // println!("{}c", jsona);
     let fields: HashMap<String, serde_json::Value> = serde_json::from_str(jsona.as_str())?;
 
     let relational_fields: RelationalSchema = fields
@@ -248,7 +248,7 @@ impl Parser {
 
     fn data_expr(&mut self) -> Expr {
         let left = self.data_call_expr();
-        println!("\n\n LEft {:?}", left);
+        // println!("\n\n LEft {:?}", left);
         if self.check(TokenType::Semicolon) {
             return left;
         } else {
@@ -710,7 +710,7 @@ impl Parser {
     }
 
     fn error(&self, token: &Token, message: &str) -> ! {
-        println!("{:?}", self.peek());
+        // println!("{:?}", self.peek());
         // println!("{:?}", self.statements);
 
         panic!(

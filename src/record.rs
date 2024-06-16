@@ -265,7 +265,7 @@ impl RelationalRecord {
         for name in schema.keys().sorted() {
             let (dtype, nullable) = schema.get(name).unwrap();
 
-            println!("{:?} {:?}", dtype, name);
+            // println!("{:?} {:?}", dtype, name);
 
             // let value = if *nullable && bytes[offset] == 0 {
             //     offset += 1;
@@ -278,7 +278,7 @@ impl RelationalRecord {
                         if offset <=     bytes.len() {
                             let val = bytes[offset] != 0;
                             offset += 1;
-                            println!("Bool {:?}", val);
+                            // println!("Bool {:?}", val);
                             RelationalValue::Boolean(val)
                         } else {
                             return Err(Error::Unknown(
@@ -291,7 +291,7 @@ impl RelationalRecord {
                         if offset + 8 <= bytes.len() {
                             let val = f64::from_le_bytes(bytes[offset..offset + 8].try_into()?);
                             offset += 8;
-                            println!("NUmber {:?}", val);
+                            // println!("NUmber {:?}", val);
                             RelationalValue::Number(val)
                         } else {
                             return Err(Error::Unknown(
@@ -303,7 +303,7 @@ impl RelationalRecord {
                         if offset + 16 <= bytes.len() {
                             let val = Decimal::deserialize(bytes[offset..offset + 16].try_into()?);
                             offset += 16;
-                            println!("NUmeric {:?}", val);
+                            // println!("NUmeric {:?}", val);
                             RelationalValue::Numeric(val)
                         } else {
                             return Err(Error::Unknown(
@@ -317,7 +317,7 @@ impl RelationalRecord {
                                 .trim_end_matches('\0')
                                 .to_string();
                             offset += len;
-                            println!("String {:?}", val);
+                            // println!("String {:?}", val);
                             RelationalValue::String(val)
                         } else {
                             return Err(Error::Unknown(
@@ -416,7 +416,7 @@ impl RelationalRecordPage {
     }
 
     pub fn deserialize(bytes: &Vec<u8>, schema: &RelationalSchema) -> Result<Self> {
-        println!("Bytes given {:?}", bytes.len());
+        // println!("Bytes given {:?}", bytes.len());
         let mut records = Vec::new();
         let shift_amount = get_byte_size(&schema);
         let mut offset = 0;

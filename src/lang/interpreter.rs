@@ -1,4 +1,5 @@
 use std::borrow::BorrowMut;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -23,7 +24,7 @@ use std::cell::RefCell;
 const DEFAULT_CHUNK_SIZE: usize = 32;
 
 pub fn get_assign_vars(expr: &Expr) -> Result<Vec<String>> {
-    println!("{:?}", expr);
+    // println!("{:?}", expr);
     match &expr {
         Expr::Assign(e) => {
             // think about it, this left token is not unwrapped into variable or attr, could be either
@@ -361,7 +362,7 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for 
 
     fn visit_data_call(&self, expr: &DataCall) -> Result<IterClosure> {
         // we need special support for system level prompts
-        println!("Evaluating datacall {:?}", &expr);
+        // println!("Evaluating datacall {:?}", &expr);
 
         let mut db_name = String::new();
         let mut table_name = String::new();
@@ -438,19 +439,19 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for 
 
     fn visit_data_expr(&self, expr: &DataExpr) -> Result<IterClosure> {
         //expecting data_call JOIN data_call on id1=id2
-        println!("Visting data expr \n");
+        // println!("Visting data expr \n");
         let a = self.evaluate_call(&expr.left)?;
         let left = RefCell::new(a);
-        println!("Visting data exp1 \n");
+        // println!("Visting data exp1 \n");
         let right = RefCell::new(self.evaluate_call(&expr.right)?);
-        println!("Visting data exp2 \n");
+        // println!("Visting data exp2 \n");
         let join_vals = get_assign_vars(&expr.join_expr)?;
-        println!("Visting data exp3 \n");
+        // println!("Visting data exp3 \n");
 
-        println!(
-            "Join Expr: {:?} ; Join Vals : {:?}",
-            &expr.join_expr, join_vals
-        );
+        // println!(
+        //     "Join Expr: {:?} ; Join Vals : {:?}",
+        //     &expr.join_expr, join_vals
+        // );
 
         match &expr.join._type {
             TokenType::Ljoin => {
@@ -496,7 +497,7 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for 
                                                 && a.fields.get(&join_vals[0]).is_some()
                                             {
                                                 // zip these two then
-                                                println!("Found something to zip");
+                                                // println!("Found something to zip");
                                                 a.fields.extend(b.fields.clone());
                                             }
                                             // otherwise, we do nothing. no null fields here, need schema for that
@@ -717,7 +718,7 @@ impl Interpreter {
 
         match expr {
             Expr::DataCall(e) => {
-                println!("Evaluating dbms operation {:?}", &e);
+                // println!("Evaluating dbms operation {:?}", &e);
 
                 // let mut db_name = String::new();
                 // let mut table_name = String::new();
@@ -829,7 +830,7 @@ impl Interpreter {
                                             {
                                                 // we should json deser it and match, pain
                                                 let schema = parse_json_to_relational_schema(&schema_str)?;
-                                                println!("SChema gotten {:?}", schema);
+                                                // println!("SChema gotten {:?}", schema);
 
                                                 let new_table = Table {
                                                     name: table_name.to_string(),
@@ -844,8 +845,8 @@ impl Interpreter {
                                                     curr_page_id: 0,
                                                     curr_row_id: 0,
                                                     page_index: HashMap::new(),
-                                                    default_index: BPTreeInternalNode::new(),
                                                     // default_index: BPTreeInternalNode::new(),
+                                                    default_index: BTreeMap::new(),
                                                     indexes: HashMap::new(),
                                                 };
                                                 db.tables.insert(table_name.clone(), new_table);
@@ -879,7 +880,8 @@ impl Interpreter {
                                             curr_page_id: 0,
                                             curr_row_id: 0,
                                             page_index: HashMap::new(),
-                                            default_index: BPTreeInternalNode::new(),
+                                            // default_index: BPTreeInternalNode::new(),
+                                            default_index: BTreeMap::new(),
                                             indexes: HashMap::new(),
                                         };
                                         db.tables.insert(table_name.clone(), new_table);
@@ -1134,6 +1136,20 @@ impl Interpreter {
 
             match root {
                 Stmt::Expression(s) => {
+                    match self.visit_dbms_call_or_pass(dbms, &s.expression) {
+                        Ok(_) =>  {
+                            return Ok(Records::DocumentRows(Vec::new()));
+                        },
+                        Err(e) => match e {
+                            Error::TypeError(_) => return Err(e),
+                            Error::DBMSCall(_) => return Err(e),
+                            e => {
+                                println!("{:?}", e); // other errors like unknown are allowed to roam free
+                                                        //if none of the above happens, then just execute it as a normal expression
+                                self.evaluate(&s.expression)?;
+                            }
+                        },
+                    }
                     let iter_closure = self.evaluate(&s.expression)?;
                     let mut records: Records;
                     let empty_pred = RPredicate::new();
@@ -1141,7 +1157,7 @@ impl Interpreter {
                     // get initial chunk, for type matching
                     match (iter_closure.get_next_chunk)(dbms, &empty_pred)? {
                         Some(chunk) => {
-                            println!("We got a chunk: {:?}", &chunk);
+                            // println!("We got a chunk: {:?}", &chunk);
                             records = chunk;
                         }
                         None => return Ok(Records::DocumentRows(Vec::new())),
@@ -1150,7 +1166,7 @@ impl Interpreter {
                     loop {
                         match (iter_closure.get_next_chunk)(dbms, &empty_pred)? {
                             Some(chunk) => {
-                                println!("We got a chunk: {:?}", &chunk);
+                                // println!("We got a chunk: {:?}", &chunk);
                                 match chunk {
                                     Records::DocumentRows(x) => {
                                         if (x.len() == 0) {

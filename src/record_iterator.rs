@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::cmp;
 
 use crate::dbms::*;
 use crate::error::*;
@@ -44,7 +45,7 @@ impl RPredicate {
 
     pub fn add(mut self, other: &RPredicate) {
         if let Some(other_offset) = other.offset {
-            self.offset = Some(self.offset.unwrap_or(0) + other_offset);
+            self.offset = Some(cmp::max(self.offset.unwrap_or(0), other_offset));
         }
 
         if let Some(other_limit) = other.limit {

@@ -151,7 +151,7 @@ impl AST  {
                         let curr = expr.methods[i];                         
                         let prev = expr.methods[i-1];       
 
-                        println!("{:?}.{:?}", &prev, &curr);                   
+                        // println!("{:?}.{:?}", &prev, &curr);                   
 
                         if let Some(r) = self.prev_map.get(&curr) {
                             if !r.contains(&prev)  {
@@ -191,7 +191,7 @@ impl AST  {
             }      
 
             _ =>  { 
-                println!("{:?}", expr);
+                // println!("{:?}", expr);
                 None
             }              
         }

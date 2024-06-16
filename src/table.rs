@@ -2,6 +2,7 @@ use core::borrow;
 use std::borrow::Borrow;
 use std::borrow::BorrowMut;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -41,7 +42,8 @@ pub struct Table {
     pub curr_row_id: usize,                // db row count basically
     pub page_index: HashMap<usize, usize>, //table page index -> filename, file_page_index
 
-    pub default_index: BPTreeInternalNode<usize, (usize, u8, u8)>, // page, offset and len
+    // pub default_index: BPTreeInternalNode<usize, (usize, u8, u8)>, // page, offset and len
+    pub default_index: BTreeMap<usize, (usize, u8, u8)>, // page, offset and len
     // pub default_index: BPTreeInternalNode<usize, (usize, u8, u8)>, // page, offset and len
     // TODO : setting the index type here defeats all generic programming
     // fuck, have to use an enum of diff configurations I guess
@@ -102,7 +104,7 @@ impl Table {
                 self.curr_page_id += 1;
                 self.page_index.insert(new_page.index, self.curr_page_id);
                 self.default_index
-                    .insert(id, (self.curr_page_id, id.clone() as u8, 0))?;
+                    .insert(id, (self.curr_page_id, id.clone() as u8, 0));
                 self.curr_row_id += 1;
                 pager.flush_page(&new_page)?;
             } else {
@@ -115,8 +117,8 @@ impl Table {
                     .write_all(relational_page.serialize(&schema));
 
                 self.default_index
-                    .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0))
-                    .unwrap(); // TODO: can offset be useful here?
+                    .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0));
+                    // .unwrap(); // TODO: can offset be useful here?
 
                 self.curr_row_id += 1;
                 pager.flush_page(&(*curr_page).borrow_mut())?;
@@ -175,9 +177,10 @@ impl Table {
                 self.curr_page_id += 1;
                 self.page_index.insert(new_page.index, self.curr_page_id);
                 self.default_index
-                    .insert(id, (self.curr_page_id, id.clone() as u8, 0))?;
+                    // .insert(id, (self.curr_page_id, id.clone() as u8, 0))?;
+                    .insert(id, (self.curr_page_id, id.clone() as u8, 0));
                 self.curr_row_id += 1;
-                println!("Index after insertion full: {:?}", &self.default_index);
+                // println!("Index after insertion full: {:?}", &self.default_index);
                 pager.flush_page(&new_page)?;
             } else {
                 // Append the record to the current page
@@ -186,11 +189,11 @@ impl Table {
                     .borrow_mut()
                     .write_all(bson::to_vec(&document_page)?);
                 self.default_index
-                    .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0))
-                    .unwrap(); // TODO: can offset be useful here?
+                    .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0));
+                    // .unwrap(); // TODO: can offset be useful here?
                                // , no since we are just doing it on page creation
                 self.curr_row_id += 1;
-                println!("index after insertion{:?}", &self.default_index);
+                // println!("index after insertion{:?}", &self.default_index);
                 pager.flush_page(&(*curr_page).borrow_mut())?;
                 // self.curr_page_id
             }
@@ -212,13 +215,14 @@ impl Table {
     pub fn get_document_rows_in_range(&self, start: usize, end: usize) -> Result<Records> {
         let mut records = Vec::new();
         if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
-            println!("Getting rows in range {} - {}", start, end);
-            println!("Index: {:?}", &self.default_index);
+            // println!("Getting rows in range {} - {}", start, end);
+            // println!("Index: {:?}", &self.default_index);
 
             for row_id in start..=end {
                 // Get the page and offset for the current row ID from the default index
-                if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
-                    println!("Record found");
+                if let Some((page_id, offset, _)) = self.default_index.get(&row_id) {
+                // if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
+                    // println!("Record found");
                     // Fetch the page from the pager
                     let page = pager.get_page_or_force(*page_id)?;
 
@@ -233,7 +237,7 @@ impl Table {
                     // would need to change our document serialization strat, make it more custom
                     if let Some(record) = document_page.records.get(*offset as usize) {
                         //feels wasteful man
-                        println!("Gotten record {:?} ", &record);
+                        // println!("Gotten record {:?} ", &record);
                         let mut nrecord: DocumentRecord = record.clone();
                         nrecord.id = Some(row_id);
                         records.push(nrecord);
@@ -252,15 +256,16 @@ impl Table {
     pub fn get_relational_rows_in_range(&self, start: usize, end: usize) -> Result<Records> {
         let mut records = Vec::new();
         if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
-            println!("Getting rows in range {} - {}", start, end);
-            println!("Index: {:?}", &self.default_index);
+            // println!("Getting rows in range {} - {}", start, end);
+            // println!("Index: {:?}", &self.default_index);
 
             match &self.schema {
                 Schema::Relational(schema) => {
                     for row_id in start..=end {
                         // Get the page and offset for the current row ID from the default index
-                        if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
-                            println!("Record found");
+                        // if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
+                        if let Some((page_id, offset, _)) = self.default_index.get(&row_id) {
+                            // println!("Record found");
                             // Fetch the page from the pager
                             let page = pager.get_page_or_force(*page_id)?;
 
@@ -273,7 +278,7 @@ impl Table {
                             };
 
                             if let Some(record) = relational_page.records.get(*offset as usize) {
-                                println!("Gotten record {:?} ", &record);
+                                // println!("Gotten record {:?} ", &record);
                                 let mut nrecord = record.clone();
                                 nrecord.id = Some(row_id);
                                 records.push(nrecord.clone());

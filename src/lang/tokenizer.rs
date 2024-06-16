@@ -273,7 +273,7 @@ impl<'a> Tokenizer<'a> {
 
     // needs proper error handling, otherwise program will never run
     fn json_string(&mut self) {
-        println!("Parsing json string now");
+        // println!("Parsing json string now");
 
         while (true) {
             if self.peek() == '}' {
@@ -282,7 +282,7 @@ impl<'a> Tokenizer<'a> {
                     self.advance();
 
                     if self.is_at_end() {
-                        println!("We at the end somehow");
+                        // println!("We at the end somehow");
                         //maybe an error
                         return;
                     }
@@ -292,14 +292,13 @@ impl<'a> Tokenizer<'a> {
                         .collect();
 
                     self.add_token(TokenType::String, Some(text.clone()));
-                    println!("Done w json string : {:?}", text);
 
                     return;
                 }
             } else {
                 // println!("TOken {} next token {} ", self.peek(), self.peek_next());
                 if self.is_at_end() {
-                    println!("We at the end somehow");
+                    // println!("We at the end somehow");
                     //maybe an error
                     return;
                 }
