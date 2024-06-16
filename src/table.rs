@@ -61,15 +61,15 @@ impl Table {
     }
     // need to be able to package into new pages and update index(es)
 
-
     // THE SCHEMA CHECK DDOESNT HAPPEN HERE, BUT AT THE PARSING STAGE INSTEAD
     pub fn insert_relational_row(&mut self, row: RelationalRecord) -> Result<()> {
-        let id = match row.id {
-            Some(x) => x.clone(),
-            None => self.curr_row_id + 1,
-        };
+        // let id = match row.id {
+        //     Some(x) => x.clone(),
+        //     None => self.curr_row_id + 1,
+        // };
         // unimplemented!()
 
+        let id = self.curr_row_id;
         if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
             let schema = match &self.schema {
                 Schema::Relational(x) => x,
@@ -77,12 +77,13 @@ impl Table {
             };
 
             let curr_page = pager.get_page_or_force(self.curr_page_id)?;
-            let mut relational_page =
-                match RelationalRecordPage::deserialize(&(*curr_page).borrow_mut().read_all(), &schema)
-                {
-                    Ok(page) => page,
-                    Err(_) => RelationalRecordPage::new(),
-                };
+            let mut relational_page = match RelationalRecordPage::deserialize(
+                &(*curr_page).borrow_mut().read_all(),
+                &schema,
+            ) {
+                Ok(page) => page,
+                Err(_) => RelationalRecordPage::new(),
+            };
 
             let new_data = row.serialize(&schema);
             if new_data.len() > PAGE_SIZE_BYTES {
@@ -100,8 +101,9 @@ impl Table {
                 new_page.write_all(new_relational_page.serialize(schema));
                 self.curr_page_id += 1;
                 self.page_index.insert(new_page.index, self.curr_page_id);
-                self.default_index.insert(id, (self.curr_page_id, 0, 0))?;
-
+                self.default_index
+                    .insert(id, (self.curr_page_id, id.clone() as u8, 0))?;
+                self.curr_row_id += 1;
                 pager.flush_page(&new_page)?;
             } else {
                 // Append the record to the current page
@@ -119,14 +121,13 @@ impl Table {
                 self.curr_row_id += 1;
                 pager.flush_page(&(*curr_page).borrow_mut())?;
             }
-        Ok(())
+            Ok(())
         } else {
             return Err(Error::Unknown(
                 "Failed to borrow cache mutably from here".to_string(),
             ));
         }
     }
-
 
     /// get the number of free bytes left in a page
     /// this would only be useful for relational row I feel
@@ -147,10 +148,11 @@ impl Table {
         //TODO: the table should check whether its a document table  or not
 
         if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
-            let id = match row.id {
-                Some(x) => x.clone(),
-                None => self.curr_row_id + 1,
-            };
+            // let id = match row.id {
+            //     Some(x) => x.clone(),
+            //     None => self.curr_row_id + 1,
+            // };
+            let id = self.curr_row_id;
             let mut curr_page = pager.get_page_or_force(self.curr_page_id)?;
             let mut document_page =
                 match DocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all()) {
@@ -172,8 +174,9 @@ impl Table {
                 new_page.write_all(bson::to_vec(&new_document_page)?);
                 self.curr_page_id += 1;
                 self.page_index.insert(new_page.index, self.curr_page_id);
-                self.default_index.insert(id, (self.curr_page_id, 0, 0))?;
-
+                self.default_index
+                    .insert(id, (self.curr_page_id, id.clone() as u8, 0))?;
+                self.curr_row_id += 1;
                 println!("Index after insertion full: {:?}", &self.default_index);
                 pager.flush_page(&new_page)?;
             } else {
@@ -231,7 +234,9 @@ impl Table {
                     if let Some(record) = document_page.records.get(*offset as usize) {
                         //feels wasteful man
                         println!("Gotten record {:?} ", &record);
-                        records.push(record.clone());
+                        let mut nrecord: DocumentRecord = record.clone();
+                        nrecord.id = Some(row_id);
+                        records.push(nrecord);
                     }
                 }
             }
@@ -259,22 +264,28 @@ impl Table {
                             // Fetch the page from the pager
                             let page = pager.get_page_or_force(*page_id)?;
 
-                            let relational_page =
-                                match RelationalRecordPage::deserialize(&(*page).borrow_mut().read_all(), schema ) {
-                                    Ok(page) => page,
-                                    Err(_) => continue, // Skip if deser fails ? Do we panic instead?
-                                };
+                            let relational_page = match RelationalRecordPage::deserialize(
+                                &(*page).borrow_mut().read_all(),
+                                schema,
+                            ) {
+                                Ok(page) => page,
+                                Err(_) => continue, // Skip if deser fails ? Do we panic instead?
+                            };
 
                             if let Some(record) = relational_page.records.get(*offset as usize) {
                                 println!("Gotten record {:?} ", &record);
-                                records.push(record.clone());
+                                let mut nrecord = record.clone();
+                                nrecord.id = Some(row_id);
+                                records.push(nrecord.clone());
                             }
                         }
                     }
 
                     Ok(Records::RelationalRows(records))
-                },
-                _ => Err(Error::TypeError("Unsupported schema type for relational DB".to_string()))
+                }
+                _ => Err(Error::TypeError(
+                    "Unsupported schema type for relational DB".to_string(),
+                )),
             }
         } else {
             return Err(Error::Unknown(
@@ -287,10 +298,10 @@ impl Table {
         match (&self._type, &self.storage_method) {
             (TableType::Document, StorageModel::Row) => {
                 return self.get_document_rows_in_range(start, end)
-            },
+            }
             (TableType::Relational, StorageModel::Row) => {
                 return self.get_relational_rows_in_range(start, end)
-            },
+            }
             _ => unimplemented!(),
         }
         // match based on the schema and document model, figure out what to do

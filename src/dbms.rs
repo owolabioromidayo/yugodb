@@ -63,7 +63,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_full_pipeline_relational_table_with_dbms_calls() {
+    fn test_full_pipeline_with_dbms_calls() {
         let mut tokenizer = Tokenizer::new(
             "
 
@@ -71,7 +71,6 @@ mod tests {
         dbs.create_table('test_db' ,'test_table', 'DOCUMENT', 'ROW');
 
         dbs.create_table('test_db' ,'test_rtable', 'RELATIONAL', 'ROW', '{
-            'id': 'number',
             'name': 'string(50)',
             'balance': ['numeric', true],
             'pob': 'string',
@@ -79,7 +78,6 @@ mod tests {
         }');
 
         dbs.insert('test_db', 'test_table', '{ 
-                'id': 0,
                 'name': 'John Doe',
                 'age': 30.0,
                 'city': 'New York',
@@ -94,7 +92,6 @@ mod tests {
         }');
 
         dbs.insert('test_db', 'test_table', '{
-            'id': 1,
             'name': 'Jane Smith',
             'age': 25.0,
             'city': 'London',
@@ -116,7 +113,6 @@ mod tests {
             }');
 
             dbs.insert('test_db', 'test_rtable', '{
-                'id': 0,
                 'name': 'Jane Smith',
                 'balance': '2502034304.2332',
                 'pob': 'London',
@@ -124,7 +120,6 @@ mod tests {
             }');
 
             dbs.insert('test_db', 'test_rtable', '{
-                'id': 1,
                 'name': 'John Doe',
                 'balance': '450.2332',
                 'pob': 'New York',
@@ -135,7 +130,7 @@ mod tests {
 
         let x = dbs.test_db.test_table.offset(0);  
         let y = dbs.test_db.test_rtable.offset(0);  
-        //x.limit(10);
+        // x.limit(10);
         // y.limit(10);
         let z  = x LJOIN y ON name=name;
         z.limit(10);
@@ -242,5 +237,4 @@ mod tests {
 
     //TODO: test insert relational row
     //TODO: test one command, seems to err out in that scenario, just add a nil template?
-
 }

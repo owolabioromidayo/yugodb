@@ -386,7 +386,7 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for 
                 // check if var
                 // we've not resolved vars having iterclosures and data calls still returning recorditerators
                 if let Ok(k) = self.visit_variable_token(&expr.attr.tokens[0]) {
-                    println!("We got a var closure!");
+                    // println!("We got a var closure!");
                     // we want to generate our new iterclosure on top of this, and set the variable
 
                     // prob here is we dont know if this is an assignmnet operation or not, so we have to do the wasteful return,
@@ -896,6 +896,7 @@ impl Interpreter {
                                     ));
                                 }
                             }
+                            //TODO: we need to be able to batch multiple calls of this
                             MethodType::Insert => {
                                 //holup, are we using strings for this shit?
                                 if resolved_args.len() != 3 {

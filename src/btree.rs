@@ -82,7 +82,7 @@ pub struct BPTreeLeafNode<T: PartialEq, U> {
 impl<T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeLeafNode<T, U> {
     fn search(&self, key: &T) -> Option<&U> {
         if let Some(x) = self.values.get(key) {
-            println!("{:?}", x);
+            // println!("{:?}", x);
             return Some(x);
         }
         None
@@ -156,7 +156,7 @@ impl<T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T, U> {
             // println!("What are we doing here");
             // we havent worked out this +1 thing yet
             if let Some(x) = &self.children[self.child_count + 1] {
-                println!("Searching {:?}", &x);
+                // println!("Searching {:?}", &x);
                 ret = match x {
                     BPTreeNodeEnum::Leaf(y) => y.search(key),
                     BPTreeNodeEnum::Internal(y) => y.search(key),
@@ -169,7 +169,7 @@ impl<T: BKey, U: Debug + Clone> BPTreeNode<T, U> for BPTreeInternalNode<T, U> {
                 if key <= k {
                     //return on first occurence (this is so wrong)
                     if let Some(x) = &self.children[_id] {
-                        println!("Searching {:?}", &x);
+                        // println!("Searching {:?}", &x);
                         match x {
                             BPTreeNodeEnum::Leaf(y) => return y.search(key),
                             BPTreeNodeEnum::Internal(y) => return y.search(key),
