@@ -2,6 +2,7 @@
 use crate::error::*;
 use crate::schema::*;
 use crate::types::*;
+use itertools::Itertools;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Serialize};
@@ -257,55 +258,71 @@ impl RelationalRecord {
     // we need a deserialization function also
     // this requires the notion of a schema
 
-    //TODO proper error propagaation -> unrap to ?
     pub fn deserialize(bytes: &[u8], schema: &RelationalSchema) -> Result<Self> {
         let mut fields = HashMap::new();
         let mut offset = 0;
-        for (name, (dtype, nullable)) in schema.iter() {
-            let value = if *nullable && bytes[offset] == 0 {
-                offset += 1;
+
+        for name in schema.keys().sorted() {
+            let (dtype, nullable) = schema.get(name).unwrap();
+
+            println!("{:?} {:?}", dtype, name);
+
+            // let value = if *nullable && bytes[offset] == 0 {
+            //     offset += 1;
+            //     RelationalValue::Null
+            let value = if false {
                 RelationalValue::Null
             } else {
                 match dtype {
                     RelationalType::Boolean => {
-                        if offset < bytes.len() {
+                        if offset <=     bytes.len() {
                             let val = bytes[offset] != 0;
                             offset += 1;
+                            println!("Bool {:?}", val);
                             RelationalValue::Boolean(val)
                         } else {
-                            return Err(Error::Unknown("Deserialization error on boolean field.".to_string()))
+                            return Err(Error::Unknown(
+                                "Deserialization error on boolean field.".to_string(),
+                            ));
                         }
                     }
                     RelationalType::Number => {
                         // so unsafe indexing is still a thing
-                        if offset +  8 < bytes.len() {
+                        if offset + 8 <= bytes.len() {
                             let val = f64::from_le_bytes(bytes[offset..offset + 8].try_into()?);
                             offset += 8;
+                            println!("NUmber {:?}", val);
                             RelationalValue::Number(val)
                         } else {
-                            return Err(Error::Unknown("Deserialization error on Numeric field.".to_string()))
+                            return Err(Error::Unknown(
+                                "Deserialization error on Numeric field.".to_string(),
+                            ));
                         }
                     }
                     RelationalType::Numeric => {
-                        if offset + 16 < bytes.len() {
-                            let val =
-                                Decimal::deserialize(bytes[offset..offset + 16].try_into()?);
+                        if offset + 16 <= bytes.len() {
+                            let val = Decimal::deserialize(bytes[offset..offset + 16].try_into()?);
                             offset += 16;
+                            println!("NUmeric {:?}", val);
                             RelationalValue::Numeric(val)
                         } else {
-                            return Err(Error::Unknown("Deserialization error on Numeric field.".to_string()))
+                            return Err(Error::Unknown(
+                                "Deserialization error on Numeric field.".to_string(),
+                            ));
                         }
                     }
                     RelationalType::String(len) => {
-
-                        if offset + len < bytes.len() {
+                        if offset + len <= bytes.len() {
                             let val = String::from_utf8_lossy(&bytes[offset..offset + len])
                                 .trim_end_matches('\0')
                                 .to_string();
                             offset += len;
+                            println!("String {:?}", val);
                             RelationalValue::String(val)
                         } else {
-                            return Err(Error::Unknown("Deserialization error on boolean field.".to_string()))
+                            return Err(Error::Unknown(
+                                "Deserialization error on string field.".to_string(),
+                            ));
                         }
                     }
                 }
@@ -317,7 +334,8 @@ impl RelationalRecord {
 
     pub fn serialize(&self, schema: &RelationalSchema) -> Vec<u8> {
         let mut bytes = Vec::new();
-        for (name, (dtype, nullable)) in schema.iter() {
+        for name in schema.keys().sorted() {
+            let (dtype, nullable) = schema.get(name).unwrap();
             let value = self.fields.get(name).unwrap_or(&RelationalValue::Null);
 
             //TODO: handle nullable fields, can lead to size mismatch
@@ -334,6 +352,7 @@ impl RelationalRecord {
                 //     bytes.extend_from_slice(&vec![0; *len])
                 // }
                 (RelationalValue::Boolean(val), RelationalType::Boolean, _) => {
+                    println!("I dont know why we are here!");
                     bytes.push(*val as u8)
                 }
                 (RelationalValue::Number(val), RelationalType::Number, _) => {
@@ -343,9 +362,15 @@ impl RelationalRecord {
                     bytes.extend_from_slice(&val.serialize())
                 }
                 (RelationalValue::String(val), RelationalType::String(len), _) => {
-                    let mut val_bytes = val.as_bytes().to_vec();
-                    val_bytes.resize(*len, 0);
-                    bytes.extend_from_slice(&val_bytes);
+                    if val.len() > *len {
+                        let new_str = val[0..*len].to_string();
+                        let val_bytes = new_str.as_bytes().to_vec();
+                        bytes.extend_from_slice(&val_bytes);
+                    } else {
+                        let mut val_bytes = val.as_bytes().to_vec();
+                        val_bytes.resize(*len, 0);
+                        bytes.extend_from_slice(&val_bytes);
+                    }
                 }
 
                 //TODO: make these proper errors
@@ -382,6 +407,8 @@ impl RelationalRecordPage {
 
     pub fn serialize(&self, schema: &RelationalSchema) -> Vec<u8> {
         let mut bytes = Vec::new();
+        //add the count
+        bytes.extend_from_slice(&self.records.len().to_le_bytes());
         for record in &self.records {
             bytes.extend_from_slice(&record.serialize(schema));
         }
@@ -389,13 +416,17 @@ impl RelationalRecordPage {
         //ENFORCING THE SIZE OF THIS WILL BE DONE ELSEWHERE, NEED TO PAD WITH ZEROES
     }
 
-    //TODO: i need more information in the page to keep track of how many records are actually there
     pub fn deserialize(bytes: &Vec<u8>, schema: &RelationalSchema) -> Result<Self> {
         println!("Bytes given {:?}", bytes.len());
         let mut records = Vec::new();
-        let shift_amount = get_byte_size(&schema); 
+        let shift_amount = get_byte_size(&schema);
         let mut offset = 0;
-        while offset < bytes.len() {
+        //get count
+        let count =
+            usize::from_le_bytes(bytes[0..std::mem::size_of::<usize>()].try_into().unwrap());
+        offset += std::mem::size_of::<usize>();
+
+        while offset < bytes.len() && records.len() < count {
             match RelationalRecord::deserialize(&bytes[offset..], schema) {
                 Ok(x) => records.push(x),
                 Err(x) => return Ok(Self { records }),
@@ -684,16 +715,21 @@ mod tests {
         );
     }
 
-
     #[test]
     fn test_record_ser_deser_string() {
         let record = DocumentRecord {
             id: Some(1),
             fields: HashMap::from([
-                ("name".to_string(), DocumentValue::String("John".to_string())),
+                (
+                    "name".to_string(),
+                    DocumentValue::String("John".to_string()),
+                ),
                 ("age".to_string(), DocumentValue::Number(30.0)),
                 ("active".to_string(), DocumentValue::Boolean(true)),
-                ("balance".to_string(), DocumentValue::Numeric(Decimal::from(1000))),
+                (
+                    "balance".to_string(),
+                    DocumentValue::Numeric(Decimal::from(1000)),
+                ),
             ]),
         };
 
@@ -837,6 +873,89 @@ mod tests {
             Some(&RelationalValue::Numeric(dec!(100.50)))
         );
     }
+
+
+    #[test]
+    fn test_empty_relational_record_page() {
+        let schema = RelationalSchema::new();
+        let page = RelationalRecordPage::new();
+
+        let serialized = page.serialize(&schema);
+        let deserialized = RelationalRecordPage::deserialize(&serialized, &schema).unwrap();
+
+        assert_eq!(deserialized.get_records().len(), 0);
+    }
+
+    #[test]
+    fn test_single_record_relational_record_page() {
+        let schema = RelationalSchema::from([
+            ("id".to_string(), (RelationalType::Number, false)),
+            ("name".to_string(), (RelationalType::String(10), false)),
+        ]);
+
+        let mut record = RelationalRecord::new();
+        record.set_field("id".to_string(), RelationalValue::Number(1.0));
+        record.set_field("name".to_string(), RelationalValue::String("John".to_string()));
+
+        let mut page = RelationalRecordPage::new();
+        page.add_record(record);
+
+        let serialized = page.serialize(&schema);
+        let deserialized = RelationalRecordPage::deserialize(&serialized, &schema).unwrap();
+
+        assert_eq!(deserialized.get_records().len(), 1);
+        assert_eq!(
+            deserialized.get_records()[0].get_field("id"),
+            Some(&RelationalValue::Number(1.0))
+        );
+        assert_eq!(
+            deserialized.get_records()[0].get_field("name"),
+            Some(&RelationalValue::String("John".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_multiple_records_relational_record_page() {
+        let schema = RelationalSchema::from([
+            ("id".to_string(), (RelationalType::Number, false)),
+            ("name".to_string(), (RelationalType::String(10), false)),
+        ]);
+
+        let mut page = RelationalRecordPage::new();
+
+        let mut record1 = RelationalRecord::new();
+        record1.set_field("id".to_string(), RelationalValue::Number(1.0));
+        record1.set_field("name".to_string(), RelationalValue::String("John".to_string()));
+        page.add_record(record1);
+
+        let mut record2 = RelationalRecord::new();
+        record2.set_field("id".to_string(), RelationalValue::Number(2.0));
+        record2.set_field("name".to_string(), RelationalValue::String("Jane".to_string()));
+        page.add_record(record2);
+
+        let serialized = page.serialize(&schema);
+        let deserialized = RelationalRecordPage::deserialize(&serialized, &schema).unwrap();
+
+        assert_eq!(deserialized.get_records().len(), 2);
+        assert_eq!(
+            deserialized.get_records()[0].get_field("id"),
+            Some(&RelationalValue::Number(1.0))
+        );
+        assert_eq!(
+            deserialized.get_records()[0].get_field("name"),
+            Some(&RelationalValue::String("John".to_string()))
+        );
+        assert_eq!(
+            deserialized.get_records()[1].get_field("id"),
+            Some(&RelationalValue::Number(2.0))
+        );
+        assert_eq!(
+            deserialized.get_records()[1].get_field("name"),
+            Some(&RelationalValue::String("Jane".to_string()))
+        );
+    }
+
+
 
     #[test]
     fn test_non_nullable_field_with_null_value() {
