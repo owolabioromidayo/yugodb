@@ -63,6 +63,101 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_full_pipeline_relational_table_with_dbms_calls() {
+        let mut tokenizer = Tokenizer::new(
+            "
+
+        dbs.create_db('test_db');
+        dbs.create_table('test_db' ,'test_table', 'DOCUMENT', 'ROW');
+
+        dbs.create_table('test_db' ,'test_rtable', 'RELATIONAL', 'ROW', '{
+            'id': 'number',
+            'name': 'string(50)',
+            'balance': ['numeric', true],
+            'pob': 'string',
+            'active': 'boolean'
+        }');
+
+        dbs.insert('test_db', 'test_table', '{ 
+                'id': 0,
+                'name': 'John Doe',
+                'age': 30.0,
+                'city': 'New York',
+                'address': {
+                    'street': '123 Main St',
+                    'zip': '10001'
+                },
+                'phone_numbers': [
+                    '123-456-7890',
+                    '987-654-3210'
+                ]
+        }');
+
+        dbs.insert('test_db', 'test_table', '{
+            'id': 1,
+            'name': 'Jane Smith',
+            'age': 25.0,
+            'city': 'London',
+            'address': {
+                'street': '456 High St',
+                'zip': 'SW1A 1AA'
+            },
+            'phone_numbers': [
+                '020-1234-5678'
+            ],
+            'employment': {
+                'company': 'Acme Inc.',
+                'position': 'Software Engineer',
+                'start_date': {
+                'year': 2022.0,
+                'month': 1.0
+                }
+            }
+            }');
+
+            dbs.insert('test_db', 'test_rtable', '{
+                'id': 0,
+                'name': 'Jane Smith',
+                'balance': '2502034304.2332',
+                'pob': 'London',
+                'active': true
+            }');
+
+            dbs.insert('test_db', 'test_rtable', '{
+                'id': 1,
+                'name': 'John Doe',
+                'balance': '450.2332',
+                'pob': 'New York',
+                'active': false
+            }');
+       
+
+
+        let x = dbs.test_db.test_table.offset(0);  
+        let y = dbs.test_db.test_rtable.offset(0);  
+        //x.limit(10);
+        // y.limit(10);
+        let z  = x LJOIN y ON name=name;
+        z.limit(10);
+
+      
+        ",
+        );
+
+        let tokens = tokenizer.scan_tokens().unwrap();
+        println!("Tokens: {:?}", tokens);
+        let mut tree = Parser::new(tokens);
+        let statements = tree.parse();
+        println!("\n\n\n Statements: {:?}", statements);
+
+        let mut dbms = DBMS::new();
+
+        let mut interpreter = Interpreter::new(statements);
+        let res = interpreter.execute(&mut dbms);
+        println!("{:?}", res);
+    }
+
+    #[test]
     fn test_full_pipeline_two_document_tables_with_dbms_calls() {
         let mut tokenizer = Tokenizer::new(
             "

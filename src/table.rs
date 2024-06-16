@@ -61,6 +61,8 @@ impl Table {
     }
     // need to be able to package into new pages and update index(es)
 
+
+    // THE SCHEMA CHECK DDOESNT HAPPEN HERE, BUT AT THE PARSING STAGE INSTEAD
     pub fn insert_relational_row(&mut self, row: RelationalRecord) -> Result<()> {
         let id = match row.id {
             Some(x) => x.clone(),
@@ -68,61 +70,63 @@ impl Table {
         };
         // unimplemented!()
 
-        //TODO:fix this to Rc::clone try_borrwo_mut
-        let mut pager = ((*self.pager).borrow_mut());
-        let schema = match &self.schema {
-            Schema::Relational(x) => x,
-            _ => panic!("Unsupported schema type for relational record"),
-        };
-
-        let curr_page = pager.get_page_or_force(self.curr_page_id)?;
-        let mut relational_page =
-            match RelationalRecordPage::deserialize(&(*curr_page).borrow_mut().read_all(), &schema)
-            {
-                Ok(page) => page,
-                Err(_) => RelationalRecordPage::new(),
+        if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
+            let schema = match &self.schema {
+                Schema::Relational(x) => x,
+                _ => panic!("Unsupported schema type for relational record"),
             };
 
-        let new_data = row.serialize(&schema);
-        if new_data.len() > PAGE_SIZE_BYTES {
+            let curr_page = pager.get_page_or_force(self.curr_page_id)?;
+            let mut relational_page =
+                match RelationalRecordPage::deserialize(&(*curr_page).borrow_mut().read_all(), &schema)
+                {
+                    Ok(page) => page,
+                    Err(_) => RelationalRecordPage::new(),
+                };
+
+            let new_data = row.serialize(&schema);
+            if new_data.len() > PAGE_SIZE_BYTES {
+                return Err(Error::Unknown(
+                    "Document size too large to be written to page".to_string(),
+                ));
+            }
+
+            //TODO
+            if relational_page.serialize(&schema).len() + new_data.len() > PAGE_SIZE_BYTES {
+                // Create a new page if adding the new record exceeds the page size
+                let new_page: Page = pager.create_new_page()?;
+                let mut new_relational_page = RelationalRecordPage::new();
+                new_relational_page.add_record(row);
+                new_page.write_all(new_relational_page.serialize(schema));
+                self.curr_page_id += 1;
+                self.page_index.insert(new_page.index, self.curr_page_id);
+                self.default_index.insert(id, (self.curr_page_id, 0, 0))?;
+
+                pager.flush_page(&new_page)?;
+            } else {
+                // Append the record to the current page
+                relational_page.add_record(row);
+                // how are we enforcing byte lens and all here? need oto clean the rest of the page
+                //do it at the page writing level
+                (*curr_page)
+                    .borrow_mut()
+                    .write_all(relational_page.serialize(&schema));
+
+                self.default_index
+                    .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0))
+                    .unwrap(); // TODO: can offset be useful here?
+
+                self.curr_row_id += 1;
+                pager.flush_page(&(*curr_page).borrow_mut())?;
+            }
+        Ok(())
+        } else {
             return Err(Error::Unknown(
-                "Document size too large to be written to page".to_string(),
+                "Failed to borrow cache mutably from here".to_string(),
             ));
         }
-
-        //TODO
-        if relational_page.serialize(&schema).len() + new_data.len() > PAGE_SIZE_BYTES {
-            // Create a new page if adding the new record exceeds the page size
-            let mut new_page: Page = pager.create_new_page()?;
-            let mut new_relational_page = RelationalRecordPage::new();
-            new_relational_page.add_record(row);
-            new_page.write_all(new_relational_page.serialize(schema));
-            self.curr_page_id += 1;
-            self.page_index.insert(new_page.index, self.curr_page_id);
-            self.default_index.insert(id, (self.curr_page_id, 0, 0))?;
-
-            pager.flush_page(&new_page)?;
-        } else {
-            // Append the record to the current page
-            relational_page.add_record(row);
-            // how are we enforcing byte lens and all here? need oto clean the rest of the page
-            //do it at the page writing level
-            (*curr_page)
-                .borrow_mut()
-                .write_all(relational_page.serialize(&schema));
-
-            self.default_index
-                .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0))
-                .unwrap(); // TODO: can offset be useful here?
-
-            self.curr_row_id += 1;
-            pager.flush_page(&(*curr_page).borrow_mut())?;
-        }
-        Ok(())
     }
 
-    //TODO, ser / deser of different page variants might actually make things easier, not as low level maybe
-    // think about it
 
     /// get the number of free bytes left in a page
     /// this would only be useful for relational row I feel
@@ -141,8 +145,6 @@ impl Table {
 
     pub fn insert_document_row(&mut self, row: DocumentRecord) -> Result<()> {
         //TODO: the table should check whether its a document table  or not
-
-        // let mut pager = ((*self.pager).borrow_mut());
 
         if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
             let id = match row.id {
@@ -164,7 +166,7 @@ impl Table {
 
             if bson::to_vec(&document_page)?.len() + new_data.len() > PAGE_SIZE_BYTES {
                 // Create a new page if adding the new record exceeds the page size
-                let mut new_page = pager.create_new_page()?;
+                let new_page = pager.create_new_page()?;
                 let mut new_document_page = DocumentRecordPage::new();
                 new_document_page.add_record(row);
                 new_page.write_all(bson::to_vec(&new_document_page)?);
@@ -242,11 +244,53 @@ impl Table {
         }
     }
 
+    pub fn get_relational_rows_in_range(&self, start: usize, end: usize) -> Result<Records> {
+        let mut records = Vec::new();
+        if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
+            println!("Getting rows in range {} - {}", start, end);
+            println!("Index: {:?}", &self.default_index);
+
+            match &self.schema {
+                Schema::Relational(schema) => {
+                    for row_id in start..=end {
+                        // Get the page and offset for the current row ID from the default index
+                        if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
+                            println!("Record found");
+                            // Fetch the page from the pager
+                            let page = pager.get_page_or_force(*page_id)?;
+
+                            let relational_page =
+                                match RelationalRecordPage::deserialize(&(*page).borrow_mut().read_all(), schema ) {
+                                    Ok(page) => page,
+                                    Err(_) => continue, // Skip if deser fails ? Do we panic instead?
+                                };
+
+                            if let Some(record) = relational_page.records.get(*offset as usize) {
+                                println!("Gotten record {:?} ", &record);
+                                records.push(record.clone());
+                            }
+                        }
+                    }
+
+                    Ok(Records::RelationalRows(records))
+                },
+                _ => Err(Error::TypeError("Unsupported schema type for relational DB".to_string()))
+            }
+        } else {
+            return Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ));
+        }
+    }
+
     pub fn get_rows_in_range(&mut self, start: usize, end: usize) -> Result<Records> {
         match (&self._type, &self.storage_method) {
             (TableType::Document, StorageModel::Row) => {
                 return self.get_document_rows_in_range(start, end)
-            }
+            },
+            (TableType::Relational, StorageModel::Row) => {
+                return self.get_relational_rows_in_range(start, end)
+            },
             _ => unimplemented!(),
         }
         // match based on the schema and document model, figure out what to do

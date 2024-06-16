@@ -2,16 +2,18 @@ use crate::error::*;
 use crate::lang::tokenizer::*;
 use crate::lang::types::*;
 use crate::record::*;
+use crate::schema::*;
+use crate::types::*;
 use rust_decimal::prelude::*;
 use rust_decimal_macros::dec;
 use std::collections::HashMap;
 use std::vec::Vec;
 
 pub fn parse_json_to_document_record(json: &str) -> Result<DocumentRecord> {
-    let mut jsona = json.replace("'", "\"");
-    jsona.trim();
+    let jsona = json.replace("'", "\"");
+    // jsona.trim();
     // jsona.pop();
-    println!("{}c", jsona);
+    // println!("{}c", jsona);
     let fields: HashMap<String, serde_json::Value> = serde_json::from_str(jsona.as_str())?;
 
     let document_fields: HashMap<String, DocumentValue> = fields
@@ -63,6 +65,94 @@ fn parse_json_value_to_document_value(value: serde_json::Value) -> DocumentValue
             DocumentValue::Object(document_obj)
         }
     }
+}
+
+pub fn parse_json_to_relational_schema(json: &str) -> Result<RelationalSchema> {
+    let jsona = json.replace("'", "\"");
+    println!("{}c", jsona);
+    let fields: HashMap<String, serde_json::Value> = serde_json::from_str(jsona.as_str())?;
+
+    let relational_fields: RelationalSchema = fields
+        .into_iter()
+        .map(|(key, value)| (key, parse_json_value_to_relational_type(value)))
+        .collect();
+
+    Ok(relational_fields)
+}
+
+fn parse_json_value_to_relational_type(value: serde_json::Value) -> (RelationalType, bool) {
+    match value {
+        serde_json::Value::String(s) => {
+            if s.to_lowercase() == "string" {
+                (RelationalType::String(50), false) // Default string length of 50
+            } else if s.to_lowercase().starts_with("string(") && s.ends_with(")") {
+                let length = s[7..s.len() - 1].parse().unwrap_or(50);
+                (RelationalType::String(length), false)
+            } else if s.to_lowercase() == "number" {
+                (RelationalType::Number, false)
+            } else if s.to_lowercase() == "numeric" {
+                (RelationalType::Numeric, false)
+            } else if s.to_lowercase() == "boolean" {
+                (RelationalType::Boolean, false)
+            } else {
+                panic!("Invalid relational type: {}", s);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            if arr.len() == 2 {
+                let relational_type = parse_json_value_to_relational_type(arr[0].clone());
+                let nullable = arr[1].as_bool().unwrap_or(false);
+                (relational_type.0, nullable)
+            } else {
+                panic!("Invalid relational type format");
+            }
+        }
+        _ => panic!("Invalid relational type format"),
+    }
+}
+
+pub fn parse_json_to_relational_record(
+    json: &str,
+    schema: &RelationalSchema,
+) -> Result<RelationalRecord> {
+    let jsona = json.replace("'", "\"");
+    let fields: HashMap<String, serde_json::Value> = serde_json::from_str(jsona.as_str())?;
+
+    let mut record = RelationalRecord::new();
+
+    //work on this now
+
+    for (field_name, field_value) in fields {
+        if let Some((field_type, nullable)) = schema.get(&field_name) {
+            let value = match (field_type, field_value) {
+                (RelationalType::Boolean, serde_json::Value::Bool(v)) => {
+                    RelationalValue::Boolean(v)
+                }
+                (RelationalType::Number, serde_json::Value::Number(v)) => {
+                    RelationalValue::Number(v.as_f64().unwrap())
+                }
+                (RelationalType::Numeric, serde_json::Value::String(v)) => {
+                    match Decimal::from_str(v.as_str()) {
+                        Ok(decimal) => RelationalValue::Numeric(decimal),
+                        Err(_) => return Err(Error::DBMSCall("Invalid numeric value".to_string())),
+                    }
+                }
+                (RelationalType::String(_), serde_json::Value::String(v)) => {
+                    RelationalValue::String(v)
+                }
+                (RelationalType::String(_), serde_json::Value::Null) if *nullable => {
+                    RelationalValue::Null
+                }
+                _ => return Err(Error::DBMSCall("Invalid field value".to_string())),
+            };
+
+            record.set_field(field_name, value);
+        } else {
+            return Err(Error::DBMSCall("Field not found in schema".to_string()));
+        }
+    }
+
+    Ok(record)
 }
 
 pub struct Parser {
@@ -690,6 +780,54 @@ mod tests {
 
         let document_record = parse_json_to_document_record(json).unwrap();
         println!("Parsed DocumentRecord: {:?}", document_record);
+    }
+
+    #[test]
+    fn test_parse_json_to_relational_schema() {
+        let schema_json = "{ 
+            'id': 'number',
+            'name': 'string(50)',
+            'age': ['number', true],
+            'city': 'string',
+            'active': 'boolean'
+        }";
+
+        let expected_schema = RelationalSchema::from([
+            ("id".to_string(), (RelationalType::Number, false)),
+            ("name".to_string(), (RelationalType::String(50), false)),
+            ("age".to_string(), (RelationalType::Number, true)),
+            ("city".to_string(), (RelationalType::String(50), false)),
+            ("active".to_string(), (RelationalType::Boolean, false)),
+        ]);
+
+        match parse_json_to_relational_schema(schema_json) {
+            Ok(schema) => {
+                assert_eq!(schema, expected_schema);
+            }
+            Err(e) => {
+                panic!("Error parsing RelationalSchema: {:?}", e);
+            }
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid relational type: invalid")]
+    fn test_parse_json_to_relational_schema_invalid_type() {
+        let schema_json = "{ 
+            'id': 'invalid'
+        }";
+
+        parse_json_to_relational_schema(schema_json).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid relational type format")]
+    fn test_parse_json_to_relational_schema_invalid_format() {
+        let schema_json = "{ 
+            'id': ['number', true, false]
+        }";
+
+        parse_json_to_relational_schema(schema_json).unwrap();
     }
 
     #[test]

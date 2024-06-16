@@ -824,14 +824,16 @@ impl Interpreter {
                                     if matches!(_type, TableType::Relational) {
                                         // we expect a schema
                                         if resolved_args.len() >= 5 {
-                                            if let ValueData::String(schema) =
-                                                &resolved_args[3].value.value
+                                            if let ValueData::String(schema_str) =
+                                                &resolved_args[4].value.value
                                             {
                                                 // we should json deser it and match, pain
+                                                let schema = parse_json_to_relational_schema(&schema_str)?;
+                                                println!("SChema gotten {:?}", schema);
 
                                                 let new_table = Table {
                                                     name: table_name.to_string(),
-                                                    schema: Schema::new(),
+                                                    schema: Schema::Relational(schema),
                                                     _type: _type,
                                                     storage_method: storage,
                                                     pager: Rc::new(RefCell::new(Pager::new(
@@ -943,7 +945,22 @@ impl Interpreter {
                                                 Err(e) => return Err(e),
                                             }
                                         }
-                                        TableType::Relational => unimplemented!(),
+                                        TableType::Relational =>{
+                                            match &table.schema {
+                                                Schema::Relational(schema) => { 
+                                                    match parse_json_to_relational_record(record_str.as_str(), schema )
+                                                    {
+                                                        Ok(record) => {
+                                                            let _ =
+                                                                db.insert_relational_row(table_name, record);
+                                                            return Ok(());
+                                                        }
+                                                        Err(e) => return Err(e),
+                                                    }
+                                                } ,
+                                                _  =>  return Err(Error::TypeError("Invalid schema type for relational db".to_string()))
+                                            }
+                                        }
                                     }
 
                                     Ok(())

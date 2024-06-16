@@ -352,7 +352,6 @@ impl RelationalRecord {
                 //     bytes.extend_from_slice(&vec![0; *len])
                 // }
                 (RelationalValue::Boolean(val), RelationalType::Boolean, _) => {
-                    println!("I dont know why we are here!");
                     bytes.push(*val as u8)
                 }
                 (RelationalValue::Number(val), RelationalType::Number, _) => {
