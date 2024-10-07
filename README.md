@@ -16,9 +16,9 @@ The database engine to fuse them all. Relational/Document and Row/Column oriente
 - [X] Thousand row insertion
 - [X] DBMS operations through query string ( CreateDB, CreateTable, Insert)
 - [X] Insert document and specify relational schemas using json strings in query
-
+- [X] 1k entries test 
 ## In Progress
-- [ ] B+ Tree range queries, scaling to 1k entries, and ser/deser into pages
+- [ ] B+ Tree range queries and ser/deser V+ Tree into pages
 - [ ] Million row challenge and culling hotpaths
 - [ ] Batched operations
 - [ ] More extensive testing and refactor
