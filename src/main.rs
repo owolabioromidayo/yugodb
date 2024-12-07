@@ -3,6 +3,7 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 use std::thread;
 
 use std::collections::HashMap;
+use std::time::Duration;
 use yugodb::lang::parser;
 use yugodb::lang::tokenizer;
 
@@ -27,24 +28,37 @@ use yugodb::table::*;
 use yugodb::types::RelationalType;
 
 fn handle_client(mut stream: TcpStream) {
-    let mut buffer = [0 as u8; 1024];
-    stream.read(&mut buffer).unwrap();
 
-    let mut resp_buffer = [0 as u8; 1024];
-    let resp = "Thank you!";
+    // let mut buffer = Vec::new();
 
-    resp_buffer[..resp.len()].copy_from_slice(resp.as_bytes());
+    let mut length_buf = [0u8; 4];
+    stream.read_exact(&mut length_buf).unwrap();
+    let length = u32::from_be_bytes(length_buf);
 
-    match std::str::from_utf8(&buffer) {
-        Ok(data) => {
-            println!("Decoded UTF-8 string: {}", data);
-            stream.write(&resp_buffer).unwrap();
+    let mut buffer = vec![0u8; length as usize];
+    stream.read_exact(&mut buffer).unwrap();
+
+    
+    // if let Err(e) = stream.read_to_end(&mut buffer) {
+    //     eprintln!("Failed to read from client: {}", e);
+    //     return;
+    // }
+
+    match String::from_utf8(buffer){
+        Ok(s) => {
+            println!("{:?}", &s);
+            let mut dbms = DBMS::new();
+            stream.write_all(format!("{:?}", handle_query(s, &mut dbms) ).as_bytes() ).unwrap();   
         }
         Err(e) => {
-            println!("Error decoding byte string: {}", e);
+            // eprintln!("Invalid UTF-8 data from client: {}", e);
+            // let _ = stream.shutdown(Shutdown::Both);
+            stream.write_all(format!("Could not decode request :( {:?}", e).as_bytes()).unwrap();
             stream.shutdown(Shutdown::Both).unwrap();
+
         }
-    }
+    };
+
 }
 
 fn handle_query(query_str: String, dbms: &mut DBMS) -> Result<Records> {

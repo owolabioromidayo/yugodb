@@ -256,12 +256,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "l"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7193a91d78adc4421e225a4eed28f32e9105e3e8973c078e4c57538b2a079435"
-
-[[package]]
 name = "libc"
 version = "0.2.153"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -869,7 +863,6 @@ dependencies = [
  "bincode",
  "bson",
  "itertools",
- "l",
  "parking_lot",
  "rust_decimal",
  "rust_decimal_macros",
