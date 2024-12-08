@@ -8,6 +8,7 @@ pub enum TokenType {
     Delete,
     Index,
     Insert,
+    InsertMany,
     Into,
     Key,
     Null,
@@ -36,8 +37,10 @@ pub enum TokenType {
 
 
     // Symbols
-    LeftParen,
-    RightParen,
+    ParenLeft,
+    ParenRight,
+    SquareParenLeft,
+    SquareParenRight,
     Asterisk,
     Plus,
     Comma,
@@ -83,6 +86,7 @@ pub enum MethodType{
     CreateTable,
     CreateDB,
     Insert,
+    InsertMany,
     Delete,
     Illegal
 }
@@ -132,6 +136,7 @@ impl MethodType {
             "create_table" => MethodType::CreateTable,
             "create_db" => MethodType::CreateDB,
             "insert" => MethodType::Insert,
+            "insertMany" => MethodType::InsertMany,
             "delete" => MethodType::Delete,
             _ => MethodType::Illegal
             

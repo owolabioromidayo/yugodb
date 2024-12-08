@@ -973,6 +973,83 @@ impl Interpreter {
                                     ));
                                 }
                             }
+
+                            MethodType::InsertMany => {
+                                
+                                if resolved_args.len() != 3 {
+                                    return Err(Error::TypeError(
+                                    "insert(db_name:string, table_name: string, record: json_string).".to_string(),
+                                ));
+                                }
+
+                                if let (
+                                    ValueData::String(db_name),
+                                    ValueData::String(table_name),
+                                    ValueData::String(record_str),
+                                ) = (
+                                    &resolved_args[0].value.value,
+                                    &resolved_args[1].value.value,
+                                    &resolved_args[2].value.value,
+                                ) {
+                                    //try fetch db
+                                    let db = match dbms.databases.get_mut(db_name) {
+                                        Some(x) => x,
+                                        _ => {
+                                            return Err(Error::DBMSCall(
+                                                "Database does not exist".to_string(),
+                                            ))
+                                        }
+                                    };
+
+                                    //try fetch table
+                                    let table = match db.tables.get(table_name) {
+                                        Some(x) => x,
+                                        _ => {
+                                            return Err(Error::DBMSCall(
+                                                "Table does not exist".to_string(),
+                                            ))
+                                        }
+                                    };
+
+                                    match &table._type {
+                                        TableType::Document => {
+                                            match parse_json_to_document_records(record_str.as_str())
+                                            {
+                                                Ok(records) => {
+                                                    let _: Vec<_>  = records.into_iter().map(|record|  {
+                                                        db.insert_document_row(table_name, record)
+                                                    }).collect();
+                                                    return Ok(());
+                                                }
+                                                Err(e) => return Err(e),
+                                            }
+                                        }
+                                        TableType::Relational =>{
+                                            //TODO: unimplemented
+                                            match &table.schema {
+                                                Schema::Relational(schema) => { 
+                                                    match parse_json_to_relational_record(record_str.as_str(), schema )
+                                                    {
+                                                        Ok(record) => {
+                                                            let _ =
+                                                                db.insert_relational_row(table_name, record);
+                                                            return Ok(());
+                                                        }
+                                                        Err(e) => return Err(e),
+                                                    }
+                                                } ,
+                                                _  =>  return Err(Error::TypeError("Invalid schema type for relational db".to_string()))
+                                            }
+                                        }
+                                    }
+
+                                    Ok(())
+                                } else {
+                                    return Err(Error::DBMSCall(
+                                        "Unsupported argument values for insert method".to_string(),
+                                    ));
+                                }
+                            }
                             _ => {
                                 return Err(Error::Unknown(
                                     "Method is not a db system call".to_string(),

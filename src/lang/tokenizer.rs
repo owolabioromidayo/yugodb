@@ -43,8 +43,10 @@ impl<'a> Tokenizer<'a> {
     fn scan_token(&mut self) -> Result<()> {
         let c = self.advance();
         match c {
-            '(' => self.add_token(TokenType::LeftParen, None),
-            ')' => self.add_token(TokenType::RightParen, None),
+            '(' => self.add_token(TokenType::ParenLeft, None),
+            ')' => self.add_token(TokenType::ParenRight, None),
+            // '[' => self.add_token(TokenType::SquareParenLeft, None),
+            // ']' => self.add_token(TokenType::SquareParenRight, None),
             ',' => self.add_token(TokenType::Comma, None),
             '.' => self.add_token(TokenType::Dot, None),
             '-' => self.add_token(TokenType::Minus, None),
@@ -93,7 +95,7 @@ impl<'a> Tokenizer<'a> {
                 self.line += 1;
             }
             '\'' => {
-                if self.match_char('{') {
+                if self.match_char('{') || self.match_char('[') {
                     //we have a json string to deal with
                     //collect everything until we get a }'
                     self.json_string()
@@ -102,7 +104,7 @@ impl<'a> Tokenizer<'a> {
                 }
             }
             '"' => {
-                if self.match_char('{') {
+                if self.match_char('{') || self.match_char('[') {
                     //we have a json string to deal with
                     //collect everything until we get a }"
                     self.json_string()
@@ -276,7 +278,7 @@ impl<'a> Tokenizer<'a> {
         // println!("Parsing json string now");
 
         while (true) {
-            if self.peek() == '}' {
+            if self.peek() == '}' || self.peek() == ']' {
                 self.advance();
                 if self.peek() == '\'' {
                     self.advance();

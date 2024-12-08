@@ -34,6 +34,41 @@ pub fn parse_json_to_document_record(json: &str) -> Result<DocumentRecord> {
     })
 }
 
+pub fn parse_json_to_document_records(json: &str) -> Result<Vec<DocumentRecord>> {
+    println!("RECORD str: {:?}", json); 
+
+    let jsona: String = json.replace("'", "\"");
+    let records: Vec<HashMap<String, serde_json::Value>> = serde_json::from_str(jsona.as_str())?;
+
+    println!("RECORDS: {:?}", records); 
+
+    let res: Vec<DocumentRecord> = records.into_iter().map(| record | {
+        // let fields: HashMap<String, serde_json::Value> = serde_json::from_str(jsona.as_str())?;
+
+        let document_fields: HashMap<String, DocumentValue> = record
+            .into_iter()
+            .map(|(key, value)| (key, parse_json_value_to_document_value(value)))
+            .collect();
+    
+        
+         DocumentRecord {
+            id: match document_fields.get("id") {
+                Some(x) => match x {
+                    DocumentValue::Number(y) => Some(*y as usize),
+                    _ => None,
+                },
+                None => None,
+            },
+            fields: document_fields,
+        }
+    } ).collect(); 
+
+    Ok(res)
+
+
+}
+
+
 fn parse_json_value_to_document_value(value: serde_json::Value) -> DocumentValue {
     match value {
         serde_json::Value::Null => DocumentValue::Null,
@@ -306,7 +341,7 @@ impl Parser {
         // self.consume(TokenType::Dot, "Expected a Dot");
 
         while !self.check_token_types(&[
-            TokenType::LeftParen,
+            TokenType::ParenLeft,
             TokenType::Semicolon,
             TokenType::Ljoin,
             TokenType::Join,
@@ -318,7 +353,7 @@ impl Parser {
             }
         }
 
-        if !self.check(TokenType::LeftParen) {
+        if !self.check(TokenType::ParenLeft) {
             // is an attribute, early exit
             return Expr::Attribute(Attribute { tokens: a });
         }
@@ -338,8 +373,8 @@ impl Parser {
         };
 
         // its here we need to parse multiple methods
-        if self.check(TokenType::LeftParen) {
-            self.consume(TokenType::LeftParen, "Expected '(' for method");
+        if self.check(TokenType::ParenLeft) {
+            self.consume(TokenType::ParenLeft, "Expected '(' for method");
             //now we parse the arguments
             let arguments = self.arguments();
 
@@ -358,7 +393,7 @@ impl Parser {
             }
             // convert this to a methodenum
 
-            self.consume(TokenType::LeftParen, "Expected '(' for method");
+            self.consume(TokenType::ParenLeft, "Expected '(' for method");
             //now we parse the arguments
             let arguments = self.arguments();
 
@@ -376,7 +411,7 @@ impl Parser {
         // if self.check(TokenType::Method) {
         //     let m = self.consume(TokenType::Method, "Method should be consumed herer");
 
-        //     self.consume(TokenType::LeftParen, "Expected '(' for method");
+        //     self.consume(TokenType::ParenLeft, "Expected '(' for method");
         //         //now we parse the arguments
         //     let arguments = self.arguments();
 
@@ -389,7 +424,7 @@ impl Parser {
 
     fn arguments(&mut self) -> Vec<Expr> {
         let mut arguments = Vec::new();
-        if !self.check(TokenType::RightParen) {
+        if !self.check(TokenType::ParenRight) {
             loop {
                 if arguments.len() >= 255 {
                     // dk about this fam
@@ -401,7 +436,7 @@ impl Parser {
                 }
             }
         }
-        self.consume(TokenType::RightParen, "Expect ')' after arguments.");
+        self.consume(TokenType::ParenRight, "Expect ')' after arguments.");
         // match callee {
         //     Expr::Variable(Variable { name }) => Expr::Call(Call { callee: name, paren, arguments }),
         //     _ => unreachable!(),
@@ -614,9 +649,9 @@ impl Parser {
             });
         }
 
-        if self.match_token(TokenType::LeftParen) {
+        if self.match_token(TokenType::ParenLeft) {
             let expr = self.expression();
-            self.consume(TokenType::RightParen, "Expect ')' after expression");
+            self.consume(TokenType::ParenRight, "Expect ')' after expression");
             Expr::Grouping(Grouping {
                 expression: Box::new(expr),
             })

@@ -321,4 +321,67 @@ mod tests {
 
     //TODO: test insert relational row
     //TODO: test one command, seems to err out in that scenario, just add a nil template?
+
+
+    // test insert many
+    #[test]
+    fn test_insert_many_document_row() {
+        let mut tokenizer = Tokenizer::new(
+            "
+
+        dbs.create_db('test_db');
+        dbs.create_table('test_db' ,'test_table', 'DOCUMENT', 'ROW');
+
+        dbs.insertMany('test_db', 'test_table', '[{ 
+                'name': 'John Doe',
+                'age': 30.0,
+                'city': 'New York',
+                'address': {
+                    'street': '123 Main St',
+                    'zip': '10001'
+                },
+                'phone_numbers': [
+                    '123-456-7890',
+                    '987-654-3210'
+                ]
+        }, {
+            'name': 'Jane Smith',
+            'age': 25.0,
+            'city': 'London',
+            'address': {
+                'street': '456 High St',
+                'zip': 'SW1A 1AA'
+            },
+            'phone_numbers': [
+                '020-1234-5678'
+            ],
+            'employment': {
+                'company': 'Acme Inc.',
+                'position': 'Software Engineer',
+                'start_date': {
+                'year': 2022.0,
+                'month': 1.0
+                }
+            }
+            }]');
+       
+
+
+        let x = dbs.test_db.test_table.offset(0);  
+        x.limit(10);
+        ",
+        );
+
+        let tokens = tokenizer.scan_tokens().unwrap();
+        println!("Tokens: {:?}", tokens);
+        let mut tree = Parser::new(tokens);
+        let statements = tree.parse();
+        println!("\n\n\n Statements: {:?}", statements);
+
+        let mut dbms = DBMS::new();
+
+        let mut interpreter = Interpreter::new(statements);
+        let res = interpreter.execute(&mut dbms);
+        println!("{:?}", res);
+    }
 }
