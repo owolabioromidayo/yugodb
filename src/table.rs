@@ -205,10 +205,100 @@ impl Table {
         }
     }
 
-    pub fn insert_document_rows(pager: &Pager, rows: Vec<DocumentRecord>) {
-        unimplemented!()
+    pub fn insert_document_rows(&mut self, rows: Vec<DocumentRecord>) -> Result<()> {
 
         // insert rows until the last page is filled
+        if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
+            // let id = match row.id {
+            //     Some(x) => x.clone(),
+            //     None => self.curr_row_id + 1,
+            // };
+            let id = self.curr_row_id;
+            let curr_page = &(*(pager.get_page_or_force(self.curr_page_id)?));
+            let mut document_page =
+                match DocumentRecordPage::deserialize(&curr_page.borrow_mut().read_all()) {
+                    Ok(page) => page,
+                    Err(_) => DocumentRecordPage::new(),
+                };
+
+            let mut i = 0;
+            
+            let mut start_ser_size =  bson::to_vec(&document_page)?.len();
+            let mut new_record_size = rows[i].serialize()?.len();
+
+    
+            while i < rows.len() && start_ser_size + new_record_size  < PAGE_SIZE_BYTES {
+                document_page.add_record(rows[i].clone());
+                start_ser_size += new_record_size;
+                i+=1; 
+                if i < rows.len(){
+                    new_record_size = rows[i].serialize()?.len();
+                }
+            }
+
+            curr_page
+                .borrow_mut()
+                .write_all(bson::to_vec(&document_page)?);
+            (id..id+i).for_each(|idx | {
+                self.default_index
+                .insert(idx.clone(), (self.curr_page_id, idx.clone() as u8, 0));
+            });
+
+            pager.flush_page(&(*curr_page).borrow_mut())?;
+
+            self.curr_row_id += i;
+
+            // persist the remaining rows
+            let mut prev = i;
+            while i < rows.len() {
+                
+                //create a new page
+                 let new_page = pager.create_new_page()?;
+                 let mut new_document_page = DocumentRecordPage::new();
+
+                 let mut start_ser_size =  bson::to_vec(&new_document_page)?.len();
+                 let mut new_record_size = rows[i].serialize()?.len();
+
+                 while i < rows.len() && start_ser_size + new_record_size < PAGE_SIZE_BYTES {
+                    new_document_page.add_record(rows[i].clone());
+                    start_ser_size += new_record_size;
+                    i+=1; 
+                    if i < rows.len(){
+                        new_record_size = rows[i].serialize()?.len();
+                    }
+                }
+
+                new_page.write_all(bson::to_vec(&new_document_page)?);
+
+                self.curr_page_id += 1;
+                self.page_index.insert(new_page.index, self.curr_page_id);
+                (id + prev.. id+i).for_each(|idx | {
+                    self.default_index
+                    .insert(idx.clone(), (self.curr_page_id, idx.clone() as u8, 0));
+                });
+
+                //TODO: remember, any of these operations can fail at any time, we really need to implement transactions
+                self.curr_row_id += (i - prev);
+
+                pager.flush_page(&new_page)?;
+                
+               
+                prev = i;
+            }
+
+
+
+
+
+       
+            Ok(())
+        } else {
+            return Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ));
+        }
+
+
         // then create new pages here
     }
 

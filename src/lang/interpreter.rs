@@ -1016,10 +1016,8 @@ impl Interpreter {
                                             match parse_json_to_document_records(record_str.as_str())
                                             {
                                                 Ok(records) => {
-                                                    let _: Vec<_>  = records.into_iter().map(|record|  {
-                                                        db.insert_document_row(table_name, record)
-                                                    }).collect();
-                                                    return Ok(());
+                                                    db.insert_document_rows(table_name, records)?;
+                                                    
                                                 }
                                                 Err(e) => return Err(e),
                                             }

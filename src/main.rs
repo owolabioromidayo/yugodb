@@ -147,6 +147,82 @@ mod tests {
     }
 
     #[test]
+    fn test_thousand_rows_insert_many() {
+        //TODO: should create a query handler
+        let seq1 = "
+
+        dbs.create_db('test_db');        
+
+        dbs.create_table('test_db' ,'test_table', 'DOCUMENT', 'ROW');
+        ";
+
+        let data = "{ 
+                'name': 'John Doe',
+                'age': 30.0,
+                'city': 'New York',
+                'address': {
+                    'street': '123 Main St',
+                    'zip': '10001'
+                },
+                'phone_numbers': [
+                    '123-456-7890',
+                    '987-654-3210'
+                ]
+        }, {
+            'name': 'Jane Smith',
+            'age': 25.0,
+            'city': 'London',
+            'address': {
+                'street': '456 High St',
+                'zip': 'SW1A 1AA'
+            },
+            'phone_numbers': [
+                '020-1234-5678'
+            ],
+            'employment': {
+                'company': 'Acme Inc.',
+                'position': 'Software Engineer',
+                'start_date': {
+                'year': 2022.0,
+                'month': 1.0
+                }
+            }
+            },".repeat(30); 
+
+        let seq2 = "
+          
+        dbs.insertMany('test_db', 'test_table', '[ ".to_owned() + &data + "
+        
+        { 
+                'name': 'John Doe',
+                'age': 30.0,
+                'city': 'New York',
+                'address': {
+                    'street': '123 Main St',
+                    'zip': '10001'
+                },
+                'phone_numbers': [
+                    '123-456-7890',
+                    '987-654-3210'
+                ]
+        }]');
+    
+        ";
+
+        let seq3 = "
+        let x = dbs.test_db.test_table.offset(0);  
+        x.limit(50);
+        ";
+
+        let mut dbms = DBMS::new();
+
+        println!("{:?}", handle_query(seq1.to_string(), &mut dbms));
+        println!("{:?}", handle_query(seq2.to_string(), &mut dbms));
+        println!("{:?}", handle_query(seq3.to_string(), &mut dbms));
+    }
+
+
+    #[test]
     fn test_full_pipeline_with_dbms_calls() {
         let mut tokenizer = Tokenizer::new(
             "

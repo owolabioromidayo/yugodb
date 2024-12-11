@@ -65,6 +65,18 @@ impl Database {
        }
     }
 
+
+    pub fn insert_document_rows(&mut self, table_name: &String, rows:Vec<DocumentRecord>) -> Result<()> {
+        match self.tables.get_mut(table_name) {
+ 
+         Some(x) =>  {
+             x.insert_document_rows(rows)
+         },
+         None => Err(Error::Unknown("Table not found".to_string())), 
+        }
+     }
+ 
+
     pub fn insert_relational_row(&mut self, table_name: &String, row:RelationalRecord) -> Result<()> {
        match self.tables.get_mut(table_name) {
 
