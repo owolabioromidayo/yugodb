@@ -193,7 +193,7 @@ mod tests {
                 'month': 1.0
                 }
             }
-            },".repeat(10); 
+            },".repeat(1000); 
 
         let seq2 = "
           

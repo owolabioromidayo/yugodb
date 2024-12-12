@@ -24,7 +24,7 @@ use colored::* ;
 
 use std::cell::RefCell;
 
-const DEFAULT_CHUNK_SIZE: usize = 32;
+const DEFAULT_CHUNK_SIZE: usize = 2048;
 
 pub fn get_assign_vars(expr: &Expr) -> Result<Vec<String>> {
     // println!("{:?}", expr);

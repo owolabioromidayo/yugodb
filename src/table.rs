@@ -303,35 +303,44 @@ impl Table {
     }
 
     pub fn get_document_rows_in_range(&self, start: usize, end: usize) -> Result<Records> {
-        let mut records = Vec::new();
-        if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
+        let mut records: Vec<DocumentRecord> = Vec::with_capacity(end-start);
+
+        if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
             // println!("Getting rows in range {} - {}", start, end);
             // println!("Index: {:?}", &self.default_index);
 
-            for row_id in start..=end {
-                // Get the page and offset for the current row ID from the default index
-                if let Some((page_id, offset, _)) = self.default_index.get(&row_id) {
-                // if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
-                    // println!("Record found");
-                    // Fetch the page from the pager
-                    let page = pager.get_page_or_force(*page_id)?;
+            let mut row_id = start;
+            if let Some((page_id, offset, _)) = self.default_index.get(&row_id) { 
+                let mut page = pager.get_page_or_force(*page_id)?;
+                let mut document_page = DocumentRecordPage::deserialize(&(*page).borrow_mut().read_all())?; 
 
-                    let document_page =
-                        match DocumentRecordPage::deserialize(&(*page).borrow_mut().read_all()) {
-                            Ok(page) => page,
-                            Err(_) => continue, // Skip if deser fails ? Do we panic instead?
-                        };
+                if let Some(record) = document_page.records.get(*offset as usize) {
+                    records.push(record.clone());
+                }
 
-                    //TODO: so the offset value should be the index in the page vec?
-                    // how about we just deserialize that portion then?
-                    // would need to change our document serialization strat, make it more custom
-                    if let Some(record) = document_page.records.get(*offset as usize) {
-                        //feels wasteful man
-                        // println!("Gotten record {:?} ", &record);
-                        let mut nrecord: DocumentRecord = record.clone();
-                        nrecord.id = Some(row_id);
-                        records.push(nrecord);
+                row_id += 1;
+
+            
+                while row_id < end { 
+                    if let Some((page_id, offset, _)) = self.default_index.get(&row_id) { 
+                        if (page_id == &(*page).borrow_mut().index) {
+                            if let Some(record) = document_page.records.get(*offset as usize) {
+                                records.push(record.clone());
+                            }  
+                        } else {
+                            // get the new page
+                            page = pager.get_page_or_force(*page_id)?;
+                            document_page = DocumentRecordPage::deserialize(&(*page).borrow_mut().read_all())?; 
+            
+                            if let Some(record) = document_page.records.get(*offset as usize) {
+                                records.push(record.clone());
+                            }
+
+                        }
                     }
+                    
+                    row_id += 1;
+
                 }
             }
 
