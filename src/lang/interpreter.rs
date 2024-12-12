@@ -16,8 +16,11 @@ use crate::record::*;
 use crate::record_iterator::*;
 use crate::schema::*;
 use crate::table::*;
+use crate::time_it;
 use std::clone::Clone;
 use std::fmt;
+
+use colored::* ;
 
 use std::cell::RefCell;
 
@@ -1016,8 +1019,9 @@ impl Interpreter {
                                             match parse_json_to_document_records(record_str.as_str())
                                             {
                                                 Ok(records) => {
+                                                    time_it!("Insertin document rows", {
                                                     db.insert_document_rows(table_name, records)?;
-                                                    
+                                                    });
                                                 }
                                                 Err(e) => return Err(e),
                                             }

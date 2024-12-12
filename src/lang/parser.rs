@@ -35,12 +35,12 @@ pub fn parse_json_to_document_record(json: &str) -> Result<DocumentRecord> {
 }
 
 pub fn parse_json_to_document_records(json: &str) -> Result<Vec<DocumentRecord>> {
-    println!("RECORD str: {:?}", json); 
+    // println!("RECORD str: {:?}", json); 
 
     let jsona: String = json.replace("'", "\"");
     let records: Vec<HashMap<String, serde_json::Value>> = serde_json::from_str(jsona.as_str())?;
 
-    println!("RECORDS: {:?}", records); 
+    // println!("RECORDS: {:?}", records); 
 
     let res: Vec<DocumentRecord> = records.into_iter().map(| record | {
         // let fields: HashMap<String, serde_json::Value> = serde_json::from_str(jsona.as_str())?;

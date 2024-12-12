@@ -1,8 +1,11 @@
 use std::collections::HashMap;
+use std::mem;
 
 use crate::lang::types::*;
 
 use crate::error::{Error, Result};
+
+use lazy_static::lazy_static;
 
 pub struct Tokenizer<'a> {
     source: &'a str,
@@ -11,6 +14,59 @@ pub struct Tokenizer<'a> {
     current: usize,
     line: usize,
 }
+
+lazy_static! {
+    static ref KEYWORDS: HashMap<&'static str, TokenType> = {
+        HashMap::from([
+            // ... other keywords
+            // ("CAST" , TokenType::Cast ),
+            // ("COLLATE" , TokenType::Collate ),
+            ("CREATE", TokenType::Create),
+            ("DELETE", TokenType::Delete),
+            ("let", TokenType::Let),
+            ("LJOIN", TokenType::Ljoin),
+            ("JOIN", TokenType::Join),
+            ("ON", TokenType::On),
+            // ("FROM" , TokenType::From ),
+            // ("INDEX" , TokenType::Index ),
+            // ("INSERT" , TokenType::Insert ),
+            // ("INTO" , TokenType::Into ),
+            // ("KEY" , TokenType::Key ),
+            ("NULL", TokenType::Null),
+            // ("ON" , TokenType::On ),
+            // ("PRIMARY" , TokenType::Primary ),
+            ("SELECT", TokenType::Select),
+            ("TABLE", TokenType::Table),
+            ("true", TokenType::True),
+            ("false", TokenType::False),
+            ("||", TokenType::Or),
+            ("&&", TokenType::And),
+            ("let", TokenType::Let),
+            // ("VALUES" , TokenType::Values ),
+            // ("WHERE" , TokenType::Where ),
+        ])
+    };
+
+    static ref METHODS: Vec<&'static str> = vec![
+        "orderby",
+        "groupby",
+        "filter",
+        "select",
+        "select_distinct",
+        "offset",
+        "limit",
+        "max",
+        "min",
+        "sum",
+        "count",
+        "count_distinct",
+        "create_table",
+        "create_db",
+        "insert",
+        "delete",
+    ];
+}
+
 
 impl<'a> Tokenizer<'a> {
     pub fn new(source: &'a str) -> Tokenizer<'a> {
@@ -24,6 +80,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     pub fn scan_tokens(&mut self) -> Result<Vec<Token>> {
+        self.tokens = Vec::with_capacity(self.source.len());
         while !self.is_at_end() {
             self.start = self.current;
             match self.scan_token() {
@@ -33,7 +90,8 @@ impl<'a> Tokenizer<'a> {
         }
 
         self.add_token(TokenType::Eof, None);
-        Ok(self.tokens.clone())
+        // let mut temp = self.tokens; 
+        Ok(mem::take(&mut self.tokens))
     }
 
     fn is_at_end(&self) -> bool {
@@ -139,98 +197,29 @@ impl<'a> Tokenizer<'a> {
             self.advance();
         }
 
-        let text = self.source[self.start..self.current].chars().collect();
+        let text = &self.source[self.start..self.current];
 
-        //for some reason I cannot make this global
-        let keywords: HashMap<&str, TokenType> = HashMap::from([
-            // ("CAST" , TokenType::Cast ),
-            // ("COLLATE" , TokenType::Collate ),
-            ("CREATE", TokenType::Create),
-            ("DELETE", TokenType::Delete),
-            ("let", TokenType::Let),
-            ("LJOIN", TokenType::Ljoin),
-            ("JOIN", TokenType::Join),
-            ("ON", TokenType::On),
-            // ("FROM" , TokenType::From ),
-            // ("INDEX" , TokenType::Index ),
-            // ("INSERT" , TokenType::Insert ),
-            // ("INTO" , TokenType::Into ),
-            // ("KEY" , TokenType::Key ),
-            ("NULL", TokenType::Null),
-            // ("ON" , TokenType::On ),
-            // ("PRIMARY" , TokenType::Primary ),
-            ("SELECT", TokenType::Select),
-            ("TABLE", TokenType::Table),
-            ("true", TokenType::True),
-            ("false", TokenType::False),
-            ("||", TokenType::Or),
-            ("&&", TokenType::And),
-            ("let", TokenType::Let),
-            // ("VALUES" , TokenType::Values ),
-            // ("WHERE" , TokenType::Where ),
-        ]);
+        let token = KEYWORDS.get(&text as &str);
 
-        let methods = vec![
-            "orderby",
-            "groupby",
-            "filter",
-            "select",
-            "select_distinct",
-            "offset",
-            "limit",
-            "max",
-            "min",
-            "sum",
-            "count",
-            "count_distinct",
-            "create_table",
-            "create_db",
-            "insert",
-            "delete",
-        ];
-
-        let token = keywords.get(&text as &str);
-
-        if &text == "true" || &text == "false" {
-            self.add_token(TokenType::Boolean, Some(text));
+        if text == "true" || text == "false" {
+            self.add_token(TokenType::Boolean, Some(text.to_string()));
         }
-        // else if text.contains('.') {
-        //     //is attribute
-        //     if self.peek() == '(' {
-        //         //this means the last part of the attr is a method
-        //         let parts: Vec<&str> = text.rsplitn(2, '.').collect();
-        //         let first_part = parts.last().unwrap_or(&"");
-        //         let second_part = parts.first().unwrap_or(&"");
 
-        //         self.add_token(TokenType::Attribute, Some(first_part.to_string()));
-
-        //         //we need to ensure method validity
-        //         if methods.contains(second_part){
-        //             self.add_token(TokenType::Method, Some(second_part.to_string()));
-        //         } else{
-        //             //we need some illegal method error preferraably
-        //             self.add_token(TokenType::Illegal, Some(second_part.to_string()));
-        //         }
-
-        // } else {
-        //     self.add_token(TokenType::Attribute, Some(text))
-        // }
-        // }
         else if let Some(x) = token {
             // Special identifier
-            self.add_token(x.clone(), Some(text));
+            self.add_token(x.clone(), Some(text.to_string()));
         } else if text
             .chars()
             //checking numeric here is fine because we checked that the first char was alpha earlier
             .all(|x| x.is_alphabetic() || x == '_' || x.is_numeric())
         {
             // check if valid var expression
-            // yeah so theeres no way a variable could be potentially a method then, since no . , no
+            // yeah so theres no way a variable could be potentially a method then, since no . , no
             // funny business
-            self.add_token(TokenType::Variable, Some(text))
+            self.add_token(TokenType::Variable, Some(text.to_string()))
         } else {
             // probably illegal right
-            self.add_token(TokenType::Illegal, Some(text))
+            self.add_token(TokenType::Illegal, Some(text.to_string()))
         }
     }
 
@@ -284,16 +273,12 @@ impl<'a> Tokenizer<'a> {
                     self.advance();
 
                     if self.is_at_end() {
-                        // println!("We at the end somehow");
-                        //maybe an error
                         return;
                     }
 
-                    let text: String = self.source[self.start + 1..self.current - 1]
-                        .chars()
-                        .collect();
+                    let text = &self.source[self.start + 1..self.current - 1];
 
-                    self.add_token(TokenType::String, Some(text.clone()));
+                    self.add_token(TokenType::String, Some(text.to_string()));
 
                     return;
                 }
@@ -318,7 +303,7 @@ impl<'a> Tokenizer<'a> {
         if self.is_at_end() {
             '\0'
         } else {
-            self.source.chars().nth(self.current).unwrap()
+            self.source[self.current..].chars().next().unwrap_or('\0')
         }
     }
 
@@ -326,7 +311,7 @@ impl<'a> Tokenizer<'a> {
         if self.current + 1 >= self.source.len() {
             '\0'
         } else {
-            self.source.chars().nth(self.current + 1).unwrap()
+            self.source[self.current + 1..].chars().next().unwrap_or('\0')
         }
     }
 
@@ -352,7 +337,7 @@ impl<'a> Tokenizer<'a> {
     fn add_token(&mut self, token_type: TokenType, literal: Option<String>) {
         let text: String = self.source[self.start..self.current].chars().collect();
         self.tokens
-            .push(Token::new(token_type.clone(), text, literal, self.line));
+            .push(Token::new(token_type, text, literal, self.line));
     }
 }
 

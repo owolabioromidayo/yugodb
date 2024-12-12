@@ -27,6 +27,10 @@ use yugodb::schema::*;
 use yugodb::table::*;
 use yugodb::types::RelationalType;
 
+use yugodb::{time_it, timer::Timer};
+
+use colored::*;
+
 fn handle_client(mut stream: TcpStream) {
 
     // let mut buffer = Vec::new();
@@ -63,15 +67,15 @@ fn handle_client(mut stream: TcpStream) {
 
 fn handle_query(query_str: String, dbms: &mut DBMS) -> Result<Records> {
     //TODO: should think about auth
-    let mut tokenizer = Tokenizer::new(&query_str);
-    let tokens = tokenizer.scan_tokens().unwrap();
-    println!("Tokens: {:?}", tokens);
-    let mut tree = Parser::new(tokens);
-    let statements = tree.parse();
-    println!("\n\n\n Statements: {:?}", statements);
+    let mut tokenizer = time_it!("Tokenization time", {Tokenizer::new(&query_str)} );
+    let tokens = time_it!("Scanning time ", {tokenizer.scan_tokens().unwrap()});
+    // println!("Tokens: {:?}", tokens);
+    let mut tree = time_it!("Parsing time ", {Parser::new(tokens)});
+    let statements = time_it!("Parsing time 2 ", {tree.parse()});
+    // println!("\n\n\n Statements: {:?}", statements);
 
-    let mut interpreter = Interpreter::new(statements);
-    interpreter.execute(dbms)
+    let mut interpreter = time_it!("INterpreter creation time ", {Interpreter::new(statements)});
+    time_it!("INterpreter execution time ", {interpreter.execute(dbms)})
 }
 
 fn main() {
@@ -95,6 +99,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+
+    use yugodb::{time_it, timer::Timer};
 
     use super::*;
 
@@ -187,7 +193,7 @@ mod tests {
                 'month': 1.0
                 }
             }
-            },".repeat(30); 
+            },".repeat(10); 
 
         let seq2 = "
           
@@ -215,10 +221,15 @@ mod tests {
         ";
 
         let mut dbms = DBMS::new();
-
-        println!("{:?}", handle_query(seq1.to_string(), &mut dbms));
-        println!("{:?}", handle_query(seq2.to_string(), &mut dbms));
-        println!("{:?}", handle_query(seq3.to_string(), &mut dbms));
+        time_it!( "Running everything ", {
+        // time_it!( "Creating the database: ", {println!("{:?}", handle_query(seq1.to_string(), &mut dbms)) });
+        // time_it!("Running the insertMany operation: ", {println!("{:?}", handle_query(seq2.to_string(), &mut dbms)) });
+        // time_it!("Fetching all the row results: ", {println!("{:?}", handle_query(seq3.to_string(), &mut dbms)) });
+        
+        time_it!( "Creating the database: ", {handle_query(seq1.to_string(), &mut dbms) });
+        time_it!("Running the insertMany operation: ", {handle_query(seq2.to_string(), &mut dbms) });
+        time_it!("Fetching all the row results: ", {handle_query(seq3.to_string(), &mut dbms) });
+    });
     }
 
 

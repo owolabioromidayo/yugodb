@@ -171,7 +171,7 @@ impl Pager {
                     .open(file_name)?;
 
                 let offset = file.seek(SeekFrom::End(0))?;
-                println!("Current offset: {}", offset);
+                // println!("Current offset: {}", offset);
 
                 let available_page_count = (FILE_LIMIT_KB - file_info.size_kb) / PAGE_SIZE_KB;
 
