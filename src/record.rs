@@ -137,8 +137,10 @@ impl DocumentRecordPage {
         Self { records }
     }
 
-    pub fn add_record(&mut self, record: DocumentRecord) {
-        self.records.push(record);
+    pub fn add_record(&mut self, record: DocumentRecord, id: usize) {
+        let mut nrecord = record;
+        nrecord.id = Some(id);
+        self.records.push(nrecord);
     }
 
     pub fn get_records(&self) -> &Vec<DocumentRecord> {
@@ -802,24 +804,25 @@ mod tests {
     fn test_add_record() {
         let mut page = DocumentRecordPage::new();
         let record = DocumentRecord::new();
-        page.add_record(record.clone());
+        page.add_record(record.clone(), 0);
         assert_eq!(page.get_records(), &vec![record]);
     }
 
     #[test]
     fn test_clear_records() {
         let mut page = DocumentRecordPage::new();
-        page.add_record(DocumentRecord::new());
-        page.add_record(DocumentRecord::with_id(42));
+        page.add_record(DocumentRecord::new(), 0);
+        page.add_record(DocumentRecord::with_id(42), 42);
         page.clear_records();
         assert!(page.records.is_empty());
     }
 
+    // TODO: dont expect these to run again with the new ID changes
     #[test]
     fn test_serialize_and_deserialize_record_page() {
         let mut page = DocumentRecordPage::new();
-        page.add_record(DocumentRecord::new());
-        page.add_record(DocumentRecord::with_id(42));
+        page.add_record(DocumentRecord::new(), 0);
+        page.add_record(DocumentRecord::with_id(42), 42);
 
         let serialized = page.serialize().unwrap();
         let deserialized = DocumentRecordPage::deserialize(&serialized).unwrap();

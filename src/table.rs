@@ -303,7 +303,7 @@ impl Table {
 
     
             while i < rows.len() && start_ser_size + new_record_size  < PAGE_SIZE_BYTES {
-                document_page.add_record(rows[i].clone());
+                document_page.add_record(rows[i].clone(), self.curr_row_id + i );
                 start_ser_size += new_record_size;
                 i+=1; 
                 if i < rows.len(){
@@ -321,7 +321,7 @@ impl Table {
 
             pager.flush_page(&(*curr_page).borrow_mut())?;
 
-            self.curr_row_id += i;
+            
 
             // persist the remaining rows
             let mut prev = i;
@@ -335,7 +335,7 @@ impl Table {
                  let mut new_record_size = rows[i].serialize()?.len();
 
                  while i < rows.len() && start_ser_size + new_record_size < PAGE_SIZE_BYTES {
-                    new_document_page.add_record(rows[i].clone());
+                    new_document_page.add_record(rows[i].clone(), self.curr_row_id + i);
                     start_ser_size += new_record_size;
                     i+=1; 
                     if i < rows.len(){
@@ -353,7 +353,7 @@ impl Table {
                 });
 
                 //TODO: remember, any of these operations can fail at any time, we really need to implement transactions
-                self.curr_row_id += (i - prev);
+                // self.curr_row_id += (i - prev);
 
                 pager.flush_page(&new_page)?;
                 
@@ -361,7 +361,7 @@ impl Table {
                 prev = i;
             }
 
-
+            self.curr_row_id += i;
 
        
             Ok(())

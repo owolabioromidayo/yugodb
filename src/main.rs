@@ -305,7 +305,6 @@ mod tests {
         }');
 
         dbs.insert('test_db', 'test_table', '{ 
-                'id': 0,
                 'name': 'John Doe',
                 'age': 30.0,
                 'city': 'New York',
@@ -320,7 +319,6 @@ mod tests {
         }');
 
         dbs.insert('test_db', 'test_table', '{
-            'id': 0,
             'name': 'Jane Smith',
             'age': 25.0,
             'city': 'London',
@@ -360,7 +358,7 @@ mod tests {
         let x = dbs.test_db.test_table.offset(0);  
         let y = dbs.test_db.test_rtable.offset(0);  
         //x.limit(10);
-        // y.limit(10);
+        //y.limit(10);
         let z  = x LJOIN y ON name=name;
         z.limit(10);
 
@@ -391,7 +389,6 @@ mod tests {
         dbs.create_table('test_db' ,'test_table', 'DOCUMENT', 'ROW');
 
         dbs.insert('test_db', 'test_table', '{ 
-                'id': 0,
                 'name': 'John Doe',
                 'age': 30.0,
                 'city': 'New York',
@@ -406,7 +403,6 @@ mod tests {
         }');
 
         dbs.insert('test_db', 'test_table', '{
-            'id': 1,
             'name': 'Jane Smith',
             'age': 25.0,
             'city': 'London',
@@ -436,8 +432,6 @@ mod tests {
          }');
 
         
-
-
         let x = dbs.test_db.test_table.offset(0);  
         x.limit(10); 
       
@@ -466,7 +460,6 @@ mod tests {
         dbs.create_table('test_db' ,'test_table', 'DOCUMENT', 'ROW');
 
         dbs.insert('test_db', 'test_table', '{ 
-                'id': 0,
                 'name': 'John Doe',
                 'age': 30.0,
                 'city': 'New York',
@@ -481,7 +474,6 @@ mod tests {
         }');
 
         dbs.insert('test_db', 'test_table', '{
-            'id': 1,
             'name': 'Jane Smith',
             'age': 25.0,
             'city': 'London',
@@ -503,7 +495,6 @@ mod tests {
             }');
 
         dbs.insert('test_db', 'test_table', '{
-            'id': 2,
             'name': 'Jsadfne Smith',
             'age': 25.0,
             'city': 'London',
@@ -526,7 +517,6 @@ mod tests {
 
 
             dbs.insert('test_db', 'test_table', '{
-            'id': 3,
             'name': 'Jsadfne Smsdfsdfdsfith Westbrook',
             'age': 25.0,
             'city': 'London',
