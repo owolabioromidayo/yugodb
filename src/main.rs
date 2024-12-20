@@ -234,6 +234,62 @@ mod tests {
 
 
     #[test]
+    fn test_relational_operations() {
+        let query_str= "
+            
+
+        dbs.create_db('test_db');
+
+        dbs.create_table('test_db' ,'test_rtable', 'RELATIONAL', 'ROW', '{
+            'name': 'string(50)',
+            'balance': ['numeric', true],
+            'pob': 'string',
+            'active': 'boolean'
+        }');
+
+    
+        dbs.insert('test_db', 'test_rtable', '{
+            'name': 'Jane Smith',
+            'balance': '2502034304.2332',
+            'pob': 'London',
+            'active': true
+        }');
+
+        dbs.insert('test_db', 'test_rtable', '{
+            'name': 'John Doe',
+            'balance': '450.2332',
+            'pob': 'New York',
+            'active': false
+        }');
+
+        dbs.insertMany('test_db', 'test_rtable', '[{
+            'name': 'Jansdgsde Smith',
+            'balance': '2502034304.2332',
+            'pob': 'London',
+            'active': true
+        },{
+            'name': 'John sdfsdfDoe',
+            'balance': '456550.2332',
+            'pob': 'New York',
+            'active': false
+        }]');
+       
+
+
+        let y = dbs.test_db.test_rtable.offset(0);  
+        y.limit(10);
+      
+        ";
+
+
+        let mut dbms = DBMS::new();
+        println!("{:?}", handle_query(query_str.to_string(), &mut dbms));
+    }
+
+
+
+    //TODO: why is this not working anymore?
+    #[test]
     fn test_full_pipeline_with_dbms_calls() {
         let mut tokenizer = Tokenizer::new(
             "

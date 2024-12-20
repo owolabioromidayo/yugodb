@@ -75,7 +75,6 @@ pub fn parse_json_to_number_array(json: &str) -> Result<Vec<f64>> {
 
     let jsona: String = json.replace("'", "\"");
     let records: Vec<f64> = serde_json::from_str(jsona.as_str())?;
-    println!("parsed array: {:?}", records);
     
     Ok(records)
 
@@ -202,6 +201,60 @@ pub fn parse_json_to_relational_record(
     }
 
     Ok(record)
+}
+
+
+pub fn parse_json_to_relational_records(
+    json: &str,
+    schema: &RelationalSchema,
+) -> Result<Vec<RelationalRecord>> {
+    let jsona = json.replace("'", "\"");
+    let records: Vec<HashMap<String, serde_json::Value>> = serde_json::from_str(jsona.as_str())?;
+
+
+    let mut res:  Vec<RelationalRecord> = Vec::new();
+    
+     for fields in records {
+        let mut record = RelationalRecord::new();
+    
+    //TODO: This is where relational schema validation happens? not the best, no? too late?
+
+        for (field_name, field_value) in fields {
+            if let Some((field_type, nullable)) = schema.get(&field_name) {
+                let value = match (field_type, field_value) {
+                    (RelationalType::Boolean, serde_json::Value::Bool(v)) => {
+                        RelationalValue::Boolean(v)
+                    }
+                    (RelationalType::Number, serde_json::Value::Number(v)) => {
+                        RelationalValue::Number(v.as_f64().unwrap())
+                    }
+                    (RelationalType::Numeric, serde_json::Value::String(v)) => {
+                        match Decimal::from_str(v.as_str()) {
+                            Ok(decimal) => RelationalValue::Numeric(decimal),
+                            Err(_) => return Err(Error::DBMSCall("Invalid numeric value".to_string())),
+                        }
+                    }
+                    (RelationalType::String(_), serde_json::Value::String(v)) => {
+                        RelationalValue::String(v)
+                    }
+                    (RelationalType::String(_), serde_json::Value::Null) if *nullable => {
+                        RelationalValue::Null
+                    }
+                    _ => return Err(Error::DBMSCall("Invalid field value".to_string())),
+                };
+    
+                record.set_field(field_name, value);
+            } else {
+                return Err(Error::DBMSCall("Field not found in schema".to_string()));
+            }
+        }
+    
+        res.push(record);
+        
+     };
+
+    return Ok(res);
+   
 }
 
 pub struct Parser {

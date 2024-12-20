@@ -1271,14 +1271,13 @@ impl Interpreter {
                                             }
                                         }
                                         TableType::Relational =>{
-                                            //TODO: unimplemented
                                             match &table.schema {
                                                 Schema::Relational(schema) => { 
-                                                    match parse_json_to_relational_record(record_str.as_str(), schema )
+                                                    match parse_json_to_relational_records(record_str.as_str(), schema )
                                                     {
-                                                        Ok(record) => {
+                                                        Ok(records) => {
                                                             let _ =
-                                                                db.insert_relational_row(table_name, record);
+                                                                db.insert_relational_rows(table_name, records);
                                                             return Ok(());
                                                         }
                                                         Err(e) => return Err(e),

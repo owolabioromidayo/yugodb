@@ -137,6 +137,16 @@ impl Database {
        }
     }
 
+    pub fn insert_relational_rows(&mut self, table_name: &String, rows:Vec<RelationalRecord>) -> Result<()> {
+        match self.tables.get_mut(table_name) {
+ 
+         Some(x) =>  {
+             x.insert_relational_rows(rows)
+         },
+         None => Err(Error::Unknown("Table not found".to_string())), 
+        }
+     }
+
     pub fn get_rows_in_range(&mut self, table_name: &String, start:usize, end:usize) -> Result<Records> {
        match self.tables.get_mut(table_name) {
 

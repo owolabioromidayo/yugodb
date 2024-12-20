@@ -63,16 +63,25 @@ impl Table {
     }
     // need to be able to package into new pages and update index(es)
 
-    // THE SCHEMA CHECK DDOESNT HAPPEN HERE, BUT AT THE PARSING STAGE INSTEAD
     pub fn insert_relational_row(&mut self, row: RelationalRecord) -> Result<()> {
+        self.insert_relational_rows(vec![row])
+    }
+
+
+    // THE SCHEMA CHECK DDOESNT HAPPEN HERE, BUT AT THE PARSING STAGE INSTEAD
+    pub fn insert_relational_rows(&mut self, rows: Vec<RelationalRecord>) -> Result<()> {
+        
+        //TODO: what is this about?
         // let id = match row.id {
         //     Some(x) => x.clone(),
         //     None => self.curr_row_id + 1,
         // };
         // unimplemented!()
 
-        let id = self.curr_row_id;
         if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
+
+            let id = self.curr_row_id;
+
             let schema = match &self.schema {
                 Schema::Relational(x) => x,
                 _ => panic!("Unsupported schema type for relational record"),
@@ -87,42 +96,79 @@ impl Table {
                 Err(_) => RelationalRecordPage::new(),
             };
 
-            let new_data = row.serialize(&schema);
+            let mut i = 0;
+            let mut start_ser_size = relational_page.serialize(&schema).len();
+            let mut new_record_size = rows[i].serialize(&schema).len();
+
+            //err if the first value is too large to fit in a page
+            let new_data = rows[0].serialize(&schema);
             if new_data.len() > PAGE_SIZE_BYTES {
                 return Err(Error::Unknown(
                     "Document size too large to be written to page".to_string(),
                 ));
             }
 
-            //TODO
-            if relational_page.serialize(&schema).len() + new_data.len() > PAGE_SIZE_BYTES {
-                // Create a new page if adding the new record exceeds the page size
-                let new_page: Page = pager.create_new_page()?;
+            while i < rows.len() && start_ser_size + new_record_size  < PAGE_SIZE_BYTES {
+                relational_page.add_record(rows[i].clone());
+                start_ser_size += new_record_size;
+                i+=1; 
+                if i < rows.len(){
+                    new_record_size = rows[i].serialize(&schema).len();
+                }
+            }
+
+            (*curr_page)
+            .borrow_mut()
+            .write_all(relational_page.serialize(&schema));
+
+            (id..id+i).for_each(|idx | {
+                self.default_index
+                .insert(idx.clone(), (self.curr_page_id, idx.clone() as u8, 0));
+            });
+
+            pager.flush_page(&(*curr_page).borrow_mut())?;
+
+            self.curr_row_id += i;
+
+
+            
+            // persist the remaining rows
+            let mut prev = i;
+            while i < rows.len() {
+                //create a new page
+                let new_page = pager.create_new_page()?;
                 let mut new_relational_page = RelationalRecordPage::new();
-                new_relational_page.add_record(row);
-                new_page.write_all(new_relational_page.serialize(schema));
+
+                let mut start_ser_size = relational_page.serialize(&schema).len();
+                let mut new_record_size = rows[i].serialize(&schema).len();
+
+                while i < rows.len() && start_ser_size + new_record_size < PAGE_SIZE_BYTES {
+                    new_relational_page.add_record(rows[i].clone());
+                    start_ser_size += new_record_size;
+                    i+=1; 
+                    if i < rows.len(){
+                        new_record_size = rows[i].serialize(&schema).len();
+                    }
+                }
+
+                new_page.write_all(new_relational_page.serialize(&schema));
+
                 self.curr_page_id += 1;
                 self.page_index.insert(new_page.index, self.curr_page_id);
-                self.default_index
-                    .insert(id, (self.curr_page_id, id.clone() as u8, 0));
-                self.curr_row_id += 1;
+                (id + prev.. id+i).for_each(|idx | {
+                    self.default_index
+                    .insert(idx.clone(), (self.curr_page_id, idx.clone() as u8, 0));
+                });
+
+                //TODO: remember, any of these operations can fail at any time, we really need to implement transactions
+                self.curr_row_id += (i - prev);
+
                 pager.flush_page(&new_page)?;
-            } else {
-                // Append the record to the current page
-                relational_page.add_record(row);
-                // how are we enforcing byte lens and all here? need oto clean the rest of the page
-                //do it at the page writing level
-                (*curr_page)
-                    .borrow_mut()
-                    .write_all(relational_page.serialize(&schema));
+                
 
-                self.default_index
-                    .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0));
-                    // .unwrap(); // TODO: can offset be useful here?
-
-                self.curr_row_id += 1;
-                pager.flush_page(&(*curr_page).borrow_mut())?;
+                prev = i;
             }
+
             Ok(())
         } else {
             return Err(Error::Unknown(
@@ -130,6 +176,8 @@ impl Table {
             ));
         }
     }
+
+
 
     /// get the number of free bytes left in a page
     /// this would only be useful for relational row I feel
@@ -149,8 +197,6 @@ impl Table {
     pub fn insert_document_row(&mut self, row: DocumentRecord) -> Result<()> {
         self.insert_document_rows(vec![row])
     }
-
-
 
     pub fn update_document_row(&mut self, row: DocumentRecord) -> Result<()> {
         self.update_document_rows(vec![row])
@@ -524,21 +570,24 @@ impl Table {
 
     pub fn get_relational_rows_in_range(&self, start: usize, end: usize) -> Result<Records> {
         let mut records = Vec::new();
-        if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
+        if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
             // println!("Getting rows in range {} - {}", start, end);
             // println!("Index: {:?}", &self.default_index);
 
+            //TODO: is there a way to get rid of this needless pattern? maybe an early quit or strict conversion?
             match &self.schema {
                 Schema::Relational(schema) => {
-                    for row_id in start..=end {
-                        // Get the page and offset for the current row ID from the default index
-                        // if let Some((page_id, offset, _)) = self.default_index.search(&row_id) {
-                        if let Some((page_id, offset, _)) = self.default_index.get(&row_id) {
-                            // println!("Record found");
-                            // Fetch the page from the pager
-                            let page = pager.get_page_or_force(*page_id)?;
 
-                            let relational_page = match RelationalRecordPage::deserialize(
+                    let mut row_id = start; 
+
+                    //get the first row that exists
+                    while row_id < end {
+
+                        if let Some((page_id, offset, _)) = self.default_index.get(&row_id) {
+
+                            let mut page = pager.get_page_or_force(*page_id)?;
+
+                            let mut relational_page = match RelationalRecordPage::deserialize(
                                 &(*page).borrow_mut().read_all(),
                                 schema,
                             ) {
@@ -552,11 +601,51 @@ impl Table {
                                 nrecord.id = Some(row_id);
                                 records.push(nrecord.clone());
                             }
-                        }
-                    }
+                        
 
-                    Ok(Records::RelationalRows(records))
+                        row_id += 1;
+
+
+                        while row_id < end {
+                            
+                            if let Some((page_id, offset, _)) = self.default_index.get(&row_id) {
+
+                                if (page_id == &(*page).borrow_mut().index) {
+                                    if let Some(record) = relational_page.records.get(*offset as usize) {
+                                        let mut nrecord = record.clone();
+                                        nrecord.id = Some(row_id);
+                                        records.push(nrecord.clone());
+                                        
+                                    }  
+                                } else {
+                                    // get the new page
+                                    page = pager.get_page_or_force(*page_id)?;
+                                    relational_page = match RelationalRecordPage::deserialize(
+                                        &(*page).borrow_mut().read_all(),
+                                        schema,
+                                    ) {
+                                        Ok(page) => page,
+                                        Err(_) => continue, 
+                                    };
+                                    if let Some(record) = relational_page.records.get(*offset as usize) {
+                                        let mut nrecord = record.clone();
+                                        nrecord.id = Some(row_id);
+                                        records.push(nrecord.clone());
+                                       
+                                    }  
+                                
+                                }
+                            }
+                            row_id += 1;
+                        }        
+
+                    } else{
+                        //do we choose to move forward, or do we choose to fail?
+                        row_id += 1;
+                    }
                 }
+                    return Ok(Records::RelationalRows(records))
+                },
                 _ => Err(Error::TypeError(
                     "Unsupported schema type for relational DB".to_string(),
                 )),
