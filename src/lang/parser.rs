@@ -28,6 +28,8 @@ pub fn parse_json_to_document_record(json: &str) -> Result<DocumentRecord> {
                 DocumentValue::Number(y) => Some(*y as usize),
                 _ => None,
             },
+            //TODO: we need to get a proper ID system going
+            // in fact, wheres the conflict when we try to insert into the same ID again?
             None => None,
         },
         fields: document_fields,
@@ -582,7 +584,7 @@ impl Parser {
 
     fn unary(&mut self) -> Expr {
         if self.match_token_types(&[TokenType::Bang, TokenType::Minus]) {
-            let operator = self.previous().clone();
+            let operator: Token = self.previous().clone();
             let right = self.unary();
             Expr::Unary(Unary {
                 operator,

@@ -12,6 +12,7 @@ use crate::lang::ast::*;
 use crate::lang::parser::*;
 use crate::lang::types::*;
 use crate::pager::*;
+use crate::record;
 use crate::record::*;
 use crate::record_iterator::*;
 use crate::schema::*;
@@ -976,6 +977,124 @@ impl Interpreter {
                                     ));
                                 }
                             }
+
+                            //TODO: method types update and delete
+                             
+                             MethodType::Update => {   
+                                if resolved_args.len() != 3 {
+                                    return Err(Error::TypeError(
+                                    "update(db_name:string, table_name: string, record: json_string).".to_string(),
+                                ));
+                                }
+
+                                if let (
+                                    ValueData::String(db_name),
+                                    ValueData::String(table_name),
+                                    ValueData::String(record_str),
+                                ) = (
+                                    &resolved_args[0].value.value,
+                                    &resolved_args[1].value.value,
+                                    &resolved_args[2].value.value,
+                                ) {
+                                    //try fetch db
+                                    let db = match dbms.databases.get_mut(db_name) {
+                                        Some(x) => x,
+                                        _ => {
+                                            return Err(Error::DBMSCall(
+                                                "Database does not exist".to_string(),
+                                            ))
+                                        }
+                                    };
+
+                                    //try fetch table
+                                    let table = match db.tables.get(table_name) {
+                                        Some(x) => x,
+                                        _ => {
+                                            return Err(Error::DBMSCall(
+                                                "Table does not exist".to_string(),
+                                            ))
+                                        }
+                                    };
+
+                                    match &table._type {
+                                        TableType::Document => {
+                                            match parse_json_to_document_record(record_str.as_str())
+                                            {
+                                                Ok(record) => {
+                                                    let _ =
+                                                        db.update_document_row(table_name, record);
+                                                    return Ok(());
+                                                }
+                                                Err(e) => return Err(e),
+                                            }
+                                        }
+                                        _ =>{
+                                            unimplemented!()
+                                        }
+                                    }
+
+                                    // Ok(())
+                                } else {
+                                    return Err(Error::DBMSCall(
+                                        "Unsupported argument values for update method".to_string(),
+                                    ));
+                                }
+                            }
+
+                            MethodType::Delete => {   
+                                if resolved_args.len() != 3 {
+                                    return Err(Error::TypeError(
+                                    "update(db_name:string, table_name: string, record_id: number).".to_string(),
+                                ));
+                                }
+
+                                if let (
+                                    ValueData::String(db_name),
+                                    ValueData::String(table_name),
+                                    ValueData::Number(record_id),
+                                ) = (
+                                    &resolved_args[0].value.value,
+                                    &resolved_args[1].value.value,
+                                    &resolved_args[2].value.value,
+                                ) {
+                                    //try fetch db
+                                    let db = match dbms.databases.get_mut(db_name) {
+                                        Some(x) => x,
+                                        _ => {
+                                            return Err(Error::DBMSCall(
+                                                "Database does not exist".to_string(),
+                                            ))
+                                        }
+                                    };
+
+                                    //try fetch table
+                                    let table = match db.tables.get(table_name) {
+                                        Some(x) => x,
+                                        _ => {
+                                            return Err(Error::DBMSCall(
+                                                "Table does not exist".to_string(),
+                                            ))
+                                        }
+                                    };
+
+                                    match &table._type {
+                                        TableType::Document => { 
+                                            return db.delete_document_row(table_name, *record_id as usize);
+                                        
+                                        }
+                                        _ =>{
+                                            unimplemented!()
+                                        }
+                                    }
+
+                                    // Ok(())
+                                } else {
+                                    return Err(Error::DBMSCall(
+                                        "Unsupported argument values for delete method".to_string(),
+                                    ));
+                                }
+                            }
+
 
                             MethodType::InsertMany => {
                                 

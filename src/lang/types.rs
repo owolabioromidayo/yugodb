@@ -9,6 +9,7 @@ pub enum TokenType {
     Index,
     Insert,
     InsertMany,
+    Update,
     Into,
     Key,
     Null,
@@ -87,6 +88,7 @@ pub enum MethodType{
     CreateDB,
     Insert,
     InsertMany,
+    Update,
     Delete,
     Illegal
 }
@@ -138,6 +140,7 @@ impl MethodType {
             "insert" => MethodType::Insert,
             "insertMany" => MethodType::InsertMany,
             "delete" => MethodType::Delete,
+            "update" => MethodType::Update,
             _ => MethodType::Illegal
             
         }

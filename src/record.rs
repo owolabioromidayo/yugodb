@@ -145,6 +145,48 @@ impl DocumentRecordPage {
         &self.records
     }
 
+    pub fn get_record(&self, id: usize) -> Option<&DocumentRecord> {
+        for record in &self.records{
+            if record.id.is_some() {
+                if record.id.unwrap() == id {
+                    return Some(record);
+                }
+            }
+            
+        }
+        return None;
+    }
+
+    pub fn update_record(&mut self, id:usize, new_record: DocumentRecord) -> Result<()> {
+        for (idx, record) in self.records.iter().enumerate(){
+            if record.id.is_some() {
+                if record.id.unwrap() == id {
+                    self.records[idx] = new_record;
+                    return Ok(());  
+                }
+            } 
+            
+        }
+        return Err(Error::NotFound("Could not find indxe to update record".to_string()));
+    }
+
+    pub fn delete_record(&mut self, id:usize) -> Result<()> {
+        for (idx, record) in self.records.iter().enumerate(){
+            if record.id.is_some() {
+                if record.id.unwrap() == id {
+                    println!("Removing record with id {}", record.id.unwrap()); 
+                    self.records.remove(idx); //TODO: worst case O(n), consider changing
+                    return Ok(());  
+                }
+            }
+        }
+        return Err(Error::NotFound("Could not find index to delete record".to_string()));
+    }
+
+    //TODO: update records and delete records
+
+
+
     pub fn clear_records(&mut self) {
         self.records.clear();
     }

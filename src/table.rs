@@ -205,6 +205,131 @@ impl Table {
         }
     }
 
+
+
+    pub fn update_document_row(&mut self, row: DocumentRecord) -> Result<()> {
+
+
+        //TODO: dont forget to carry the default index along in all of this
+
+        if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
+
+            let row_id = row.id.unwrap();
+            if let Some((page_id, _, _)) = self.default_index.get(&row_id) { 
+                let curr_page = &(*(pager.get_page_or_force(*page_id)?));
+                let mut document_page = DocumentRecordPage::deserialize(&(curr_page).borrow_mut().read_all())?; 
+
+                let curr_data = document_page.get_record(row_id).unwrap() ;
+                
+                let new_data = row.serialize()?;
+
+                let document_page_len =  document_page.serialize()?.len(); 
+
+                if new_data.len() > PAGE_SIZE_BYTES {
+                    return Err(Error::Unknown(
+                        "Document size too large to be written to page".to_string(),
+                    ));
+                }
+
+                if new_data.len() + document_page_len - curr_data.serialize()?.len() > PAGE_SIZE_BYTES {
+                        // we dont need to do anything, this becomes an insert_document_row operation
+
+                           //delete the current record and write in another page then
+                            // we cant delete then fail, we should delete after a successful insertion
+                            //TODO: otoh, we can't now have both a failed delete and a new insertion, the entire operation should roll back in that case 
+                            document_page.delete_record(row_id)?; 
+                           
+                            curr_page
+                            .borrow_mut()
+                            .write_all(bson::to_vec(&document_page)?);
+
+                            pager.flush_page(&(*curr_page).borrow_mut())?;
+
+                            self.default_index.remove(&row_id); 
+
+                            self.insert_document_row(row)?;
+
+                            return Ok(())
+                }
+
+                //otherwise, we just remove the current record from the page and replace it
+                document_page.update_record(row_id, row)?;
+
+
+                //default index remains the same
+
+                //flush the page                
+                curr_page
+                .borrow_mut()
+                .write_all(bson::to_vec(&document_page)?);
+
+                pager.flush_page(&(*curr_page).borrow_mut())?;
+                
+                return Ok(());
+
+
+            }else {
+                return Err(Error::NotFound(
+                    "Could not find record with id to update in database".to_string(),
+                ));
+            }
+          
+        }else {
+            return Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ));
+        }
+               
+    }
+
+
+    pub fn delete_document_row(&mut self, row_id: usize) -> Result<()> {
+
+
+        if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
+
+            if let Some((page_id, _, _)) = self.default_index.get(&row_id) { 
+                let curr_page = &(*(pager.get_page_or_force(*page_id)?));
+                let mut document_page = DocumentRecordPage::deserialize(&(curr_page).borrow_mut().read_all())?;        
+
+                //just delete from the page and reserialize
+                println!("Getting rid of {} in {:?} ", row_id, document_page); 
+
+                document_page.delete_record(row_id)?;
+
+                println!("Gotten rid of {} in {:?} ", row_id, document_page); 
+
+
+                //remove idx from default index
+                self.default_index.remove(&row_id);
+                
+                //flush the page                
+                curr_page
+                .borrow_mut()
+                .write_all(bson::to_vec(&document_page)?);
+
+
+                //the offsets of all the documents stored in the d bwould have to change now too
+
+                pager.flush_page(&(*curr_page).borrow_mut())?;
+                
+                return Ok(());
+
+
+            }else {
+                return Err(Error::NotFound(
+                    "Could not find record with id to delete in database".to_string(),
+                ));
+            }
+          
+        }else {
+            return Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ));
+        }
+               
+    }
+
     pub fn insert_document_rows(&mut self, rows: Vec<DocumentRecord>) -> Result<()> {
 
         // insert rows until the last page is filled
@@ -309,47 +434,56 @@ impl Table {
             // println!("Getting rows in range {} - {}", start, end);
             // println!("Index: {:?}", &self.default_index);
 
-            let mut row_id = start;
-            if let Some((page_id, offset, _)) = self.default_index.get(&row_id) { 
-                let mut page = pager.get_page_or_force(*page_id)?;
-                let mut document_page = DocumentRecordPage::deserialize(&(*page).borrow_mut().read_all())?; 
+            let mut row_id: usize = start;
+            //get first row that actually exists
+                while row_id < end  {
 
-                if let Some(record) = document_page.records.get(*offset as usize) {
-                    records.push(record.clone());
-                }
-
-                row_id += 1;
-
-            
-                while row_id < end { 
                     if let Some((page_id, offset, _)) = self.default_index.get(&row_id) { 
-                        if (page_id == &(*page).borrow_mut().index) {
-                            if let Some(record) = document_page.records.get(*offset as usize) {
-                                records.push(record.clone());
-                            }  
-                        } else {
-                            // get the new page
-                            page = pager.get_page_or_force(*page_id)?;
-                            document_page = DocumentRecordPage::deserialize(&(*page).borrow_mut().read_all())?; 
-            
-                            if let Some(record) = document_page.records.get(*offset as usize) {
-                                records.push(record.clone());
-                            }
+                        let mut page = pager.get_page_or_force(*page_id)?;
+                        let mut document_page = DocumentRecordPage::deserialize(&(*page).borrow_mut().read_all())?; 
 
+        
+                        if let Some(record) = document_page.get_record(*offset as usize) {
+                            records.push(record.clone());
                         }
-                    }
+
+                        row_id += 1;
+        
+                        //try to get all successive rows
+                        while row_id < end { 
+                            if let Some((page_id, offset, _)) = self.default_index.get(&row_id) { 
+                                if (page_id == &(*page).borrow_mut().index) {
+                                    if let Some(record) = document_page.get_record(*offset as usize) {
+                                        records.push(record.clone());
+                                    }  
+                                } else {
+                                    // get the new page
+                                    page = pager.get_page_or_force(*page_id)?;
+                                    document_page = DocumentRecordPage::deserialize(&(*page).borrow_mut().read_all())?; 
                     
-                    row_id += 1;
-
-                }
-            }
-
-            Ok(Records::DocumentRows(records))
-        } else {
+                                    if let Some(record) = document_page.get_record(*offset as usize) {
+                                        records.push(record.clone());
+                                    }
+        
+                                }
+                            }
+                            
+                            row_id += 1;
+        
+                        }
+                    } else {
+                        row_id += 1;
+                    }
+         
+            } 
+            return Ok(Records::DocumentRows(records))
+        }
+        else {
             return Err(Error::Unknown(
                 "Failed to borrow cache mutably from here".to_string(),
             ));
-        }
+
+    }
     }
 
     pub fn get_relational_rows_in_range(&self, start: usize, end: usize) -> Result<Records> {
