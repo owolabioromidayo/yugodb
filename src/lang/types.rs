@@ -6,10 +6,12 @@ pub enum TokenType {
     // Keywords
     Create,
     Delete,
+    DeleteMany,
     Index,
     Insert,
     InsertMany,
     Update,
+    UpdateMany,
     Into,
     Key,
     Null,
@@ -89,7 +91,9 @@ pub enum MethodType{
     Insert,
     InsertMany,
     Update,
+    UpdateMany,
     Delete,
+    DeleteMany,
     Illegal
 }
 
@@ -141,6 +145,8 @@ impl MethodType {
             "insertMany" => MethodType::InsertMany,
             "delete" => MethodType::Delete,
             "update" => MethodType::Update,
+            "deleteMany" => MethodType::DeleteMany,
+            "updateMany" => MethodType::UpdateMany,
             _ => MethodType::Illegal
             
         }

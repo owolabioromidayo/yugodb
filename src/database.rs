@@ -87,6 +87,18 @@ impl Database {
         }
      }
 
+     pub fn delete_document_rows(&mut self, table_name: &String, row_ids: Vec<usize>) -> Result<()> {
+        match self.tables.get_mut(table_name) {
+ 
+         Some(x) =>  {
+             x.delete_document_rows(row_ids)
+         },
+         None => Err(Error::Unknown("Table not found".to_string())), 
+        }
+     }
+
+
+
 
 
     pub fn insert_document_rows(&mut self, table_name: &String, rows:Vec<DocumentRecord>) -> Result<()> {
@@ -94,6 +106,16 @@ impl Database {
  
          Some(x) =>  {
              x.insert_document_rows(rows)
+         },
+         None => Err(Error::Unknown("Table not found".to_string())), 
+        }
+     }
+
+     pub fn update_document_rows(&mut self, table_name: &String, rows:Vec<DocumentRecord>) -> Result<()> {
+        match self.tables.get_mut(table_name) {
+ 
+         Some(x) =>  {
+             x.update_document_rows(rows)
          },
          None => Err(Error::Unknown("Table not found".to_string())), 
         }

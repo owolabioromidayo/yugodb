@@ -71,6 +71,18 @@ pub fn parse_json_to_document_records(json: &str) -> Result<Vec<DocumentRecord>>
 }
 
 
+pub fn parse_json_to_number_array(json: &str) -> Result<Vec<f64>> {
+
+    let jsona: String = json.replace("'", "\"");
+    let records: Vec<f64> = serde_json::from_str(jsona.as_str())?;
+    println!("parsed array: {:?}", records);
+    
+    Ok(records)
+
+
+}
+
+
 fn parse_json_value_to_document_value(value: serde_json::Value) -> DocumentValue {
     match value {
         serde_json::Value::Null => DocumentValue::Null,

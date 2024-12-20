@@ -147,178 +147,82 @@ impl Table {
     }
 
     pub fn insert_document_row(&mut self, row: DocumentRecord) -> Result<()> {
-        //TODO: the table should check whether its a document table  or not
-
-        if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
-            // let id = match row.id {
-            //     Some(x) => x.clone(),
-            //     None => self.curr_row_id + 1,
-            // };
-            let id = self.curr_row_id;
-            let mut curr_page = pager.get_page_or_force(self.curr_page_id)?;
-            let mut document_page =
-                match DocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all()) {
-                    Ok(page) => page,
-                    Err(_) => DocumentRecordPage::new(),
-                };
-            let new_data = row.serialize()?;
-            if new_data.len() > PAGE_SIZE_BYTES {
-                return Err(Error::Unknown(
-                    "Document size too large to be written to page".to_string(),
-                ));
-            }
-
-            if bson::to_vec(&document_page)?.len() + new_data.len() > PAGE_SIZE_BYTES {
-                // Create a new page if adding the new record exceeds the page size
-                let new_page = pager.create_new_page()?;
-                let mut new_document_page = DocumentRecordPage::new();
-                new_document_page.add_record(row);
-                new_page.write_all(bson::to_vec(&new_document_page)?);
-                self.curr_page_id += 1;
-                self.page_index.insert(new_page.index, self.curr_page_id);
-                self.default_index
-                    // .insert(id, (self.curr_page_id, id.clone() as u8, 0))?;
-                    .insert(id, (self.curr_page_id, id.clone() as u8, 0));
-                self.curr_row_id += 1;
-                // println!("Index after insertion full: {:?}", &self.default_index);
-                pager.flush_page(&new_page)?;
-            } else {
-                // Append the record to the current page
-                document_page.add_record(row);
-                (*curr_page)
-                    .borrow_mut()
-                    .write_all(bson::to_vec(&document_page)?);
-                self.default_index
-                    .insert(id.clone(), (self.curr_page_id, id.clone() as u8, 0));
-                    // .unwrap(); // TODO: can offset be useful here?
-                               // , no since we are just doing it on page creation
-                self.curr_row_id += 1;
-                // println!("index after insertion{:?}", &self.default_index);
-                pager.flush_page(&(*curr_page).borrow_mut())?;
-                // self.curr_page_id
-            }
-            return Ok(());
-        } else {
-            return Err(Error::Unknown(
-                "Failed to borrow cache mutably from here".to_string(),
-            ));
-        }
+        self.insert_document_rows(vec![row])
     }
 
 
 
     pub fn update_document_row(&mut self, row: DocumentRecord) -> Result<()> {
+        self.update_document_rows(vec![row])
+    }
 
 
-        //TODO: dont forget to carry the default index along in all of this
+    pub fn delete_document_row(&mut self, row_id: usize) -> Result<()> {
+        self.delete_document_rows(vec![row_id])
+    }
+
+    pub fn delete_document_rows(&mut self, row_ids: Vec<usize>) -> Result<()> {
 
         if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
 
-            let row_id = row.id.unwrap();
-            if let Some((page_id, _, _)) = self.default_index.get(&row_id) { 
-                let curr_page = &(*(pager.get_page_or_force(*page_id)?));
-                let mut document_page = DocumentRecordPage::deserialize(&(curr_page).borrow_mut().read_all())?; 
+            let curr_id = row_ids[0 ];
 
-                let curr_data = document_page.get_record(row_id).unwrap() ;
-                
-                let new_data = row.serialize()?;
+            if let Some((page_id, _, _)) = self.default_index.get(&curr_id) { 
+                let mut curr_page =pager.get_page_or_force(*page_id)?;
+                let mut document_page = DocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all())?;        
 
-                let document_page_len =  document_page.serialize()?.len(); 
+                //just delete from the page and reserialize
+                // println!("Getting rid of {} in {:?} ", row_id, document_page); 
 
-                if new_data.len() > PAGE_SIZE_BYTES {
-                    return Err(Error::Unknown(
-                        "Document size too large to be written to page".to_string(),
-                    ));
-                }
+                document_page.delete_record(curr_id)?;
 
-                if new_data.len() + document_page_len - curr_data.serialize()?.len() > PAGE_SIZE_BYTES {
-                        // we dont need to do anything, this becomes an insert_document_row operation
+                // println!("Gotten rid of {} in {:?} ", row_id, document_page); 
 
-                           //delete the current record and write in another page then
-                            // we cant delete then fail, we should delete after a successful insertion
-                            //TODO: otoh, we can't now have both a failed delete and a new insertion, the entire operation should roll back in that case 
-                            document_page.delete_record(row_id)?; 
-                           
-                            curr_page
+
+                //remove idx from default index
+                self.default_index.remove(&curr_id);
+
+
+                for i in row_ids[1..].iter() {
+                    let curr_id = i.clone(); 
+
+                    if let Some((page_id, _, _)) = self.default_index.get(&curr_id) { 
+                        if !(page_id == &(*curr_page).borrow_mut().index) { 
+                            // update curr page if needed
+                             //flush the intermediary page                
+                            (*curr_page)
                             .borrow_mut()
                             .write_all(bson::to_vec(&document_page)?);
 
                             pager.flush_page(&(*curr_page).borrow_mut())?;
 
-                            self.default_index.remove(&row_id); 
+                            curr_page = pager.get_page_or_force(*page_id)?;
+                            document_page = DocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all())?;
+                        } 
 
-                            self.insert_document_row(row)?;
-
-                            return Ok(())
+                        document_page.delete_record(curr_id)?;
+                        self.default_index.remove(&curr_id);
+                } else {
+                    return Err(Error::NotFound(
+                        format!("Could not find record with id {} to delete in table", curr_id),
+                    ));
                 }
-
-                //otherwise, we just remove the current record from the page and replace it
-                document_page.update_record(row_id, row)?;
-
-
-                //default index remains the same
-
-                //flush the page                
-                curr_page
+                
+                //flush the last page                
+                (*curr_page)
                 .borrow_mut()
                 .write_all(bson::to_vec(&document_page)?);
 
+
                 pager.flush_page(&(*curr_page).borrow_mut())?;
-                
-                return Ok(());
-
-
-            }else {
-                return Err(Error::NotFound(
-                    "Could not find record with id to update in database".to_string(),
-                ));
             }
-          
-        }else {
-            return Err(Error::Unknown(
-                "Failed to borrow cache mutably from here".to_string(),
-            ));
-        }
-               
-    }
-
-
-    pub fn delete_document_row(&mut self, row_id: usize) -> Result<()> {
-
-
-        if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
-
-            if let Some((page_id, _, _)) = self.default_index.get(&row_id) { 
-                let curr_page = &(*(pager.get_page_or_force(*page_id)?));
-                let mut document_page = DocumentRecordPage::deserialize(&(curr_page).borrow_mut().read_all())?;        
-
-                //just delete from the page and reserialize
-                println!("Getting rid of {} in {:?} ", row_id, document_page); 
-
-                document_page.delete_record(row_id)?;
-
-                println!("Gotten rid of {} in {:?} ", row_id, document_page); 
-
-
-                //remove idx from default index
-                self.default_index.remove(&row_id);
                 
-                //flush the page                
-                curr_page
-                .borrow_mut()
-                .write_all(bson::to_vec(&document_page)?);
-
-
-                //the offsets of all the documents stored in the d bwould have to change now too
-
-                pager.flush_page(&(*curr_page).borrow_mut())?;
-                
-                return Ok(());
+            return Ok(());
 
 
             }else {
                 return Err(Error::NotFound(
-                    "Could not find record with id to delete in database".to_string(),
+                    format!("Could not find record with id {} to delete in table", curr_id),
                 ));
             }
           
@@ -413,8 +317,6 @@ impl Table {
 
 
 
-
-
        
             Ok(())
         } else {
@@ -425,6 +327,140 @@ impl Table {
 
 
         // then create new pages here
+    }
+
+
+    pub fn update_document_rows(&mut self, rows: Vec<DocumentRecord>) -> Result<()> {
+        if rows.len() == 0 {
+            return Ok(())
+        }
+
+        if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
+
+            //update first, store temp page
+            let curr_id = rows[0].id.unwrap();
+            let curr_row = rows[0].clone();
+            
+            if let Some((page_id, _, _)) = self.default_index.get(&curr_id) { 
+                let mut curr_page = pager.get_page_or_force(*page_id)?;
+                let mut document_page = DocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all())?; 
+
+                let curr_data = document_page.get_record(curr_id).unwrap() ;
+                let new_data = curr_row.serialize()?;
+                let document_page_len =  document_page.serialize()?.len(); 
+
+                if new_data.len() > PAGE_SIZE_BYTES {
+                    return Err(Error::Unknown(
+                        "Document size too large to be written to page".to_string(),
+                    ));
+                }
+
+                if new_data.len() + document_page_len - curr_data.serialize()?.len() > PAGE_SIZE_BYTES {
+                        // we dont need to do anything, this becomes an insert_document_row operation
+
+                           //delete the current record and write in another page then
+                            // we cant delete then fail, we should delete after a successful insertion
+                            //TODO: otoh, we can't now have both a failed delete and a new insertion, the entire operation should roll back in that case 
+                            document_page.delete_record(curr_id)?; 
+                           
+                            (*curr_page)
+                            .borrow_mut()
+                            .write_all(bson::to_vec(&document_page)?);
+
+                            pager.flush_page(&(*curr_page).borrow_mut())?;
+
+                            self.default_index.remove(&curr_id); 
+
+                            self.insert_document_row(curr_row)?;
+
+                            
+                } else {
+                       //otherwise, we just remove the current record from the page and replace it
+                        document_page.update_record(curr_id, curr_row)?;
+
+                        // (*curr_page)
+                        // .borrow_mut()
+                        // .write_all(bson::to_vec(&document_page)?);
+
+                        // pager.flush_page(&(*curr_page).borrow_mut())?;
+
+                }
+                //update the remaining
+                for i in 1..rows.len() { 
+                    let curr_id = rows[i].id.unwrap();
+                    let curr_row = rows[i].clone();
+
+                    if let Some((page_id, _, _)) = self.default_index.get(&curr_id) { 
+                        if !(page_id == &(*curr_page).borrow_mut().index) { 
+                            // update curr page if needed
+                             //flush the page                
+                            (*curr_page)
+                            .borrow_mut()
+                            .write_all(bson::to_vec(&document_page)?);
+
+                            pager.flush_page(&(*curr_page).borrow_mut())?;
+                            curr_page = pager.get_page_or_force(*page_id)?;
+
+                            document_page = DocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all())?;
+                        } 
+
+                        let curr_data = document_page.get_record(curr_id).unwrap() ;
+                        let new_data = curr_row.serialize()?;
+                        let document_page_len =  document_page.serialize()?.len(); 
+
+                        if new_data.len() > PAGE_SIZE_BYTES {
+                            return Err(Error::Unknown(
+                                "Document size too large to be written to page".to_string(),
+                            ));
+                        }
+
+                        if new_data.len() + document_page_len - curr_data.serialize()?.len() > PAGE_SIZE_BYTES {
+
+                                    document_page.delete_record(curr_id)?; 
+                                
+                                    (*curr_page)
+                                    .borrow_mut()
+                                    .write_all(bson::to_vec(&document_page)?);
+
+                                    pager.flush_page(&(*curr_page).borrow_mut())?;
+
+                                    self.default_index.remove(&curr_id); 
+
+                                    self.insert_document_row(curr_row)?;
+
+                                    
+                        } else {
+                            println!("Updated record in page with {:?}", &curr_row);
+                                document_page.update_record(curr_id, curr_row)?;
+                                println!("{:?}", &document_page.records );
+
+                        }
+                } else {
+                    return Err(Error::NotFound(
+                        //TODO: there should be a rollback at this point, or confirmation of all IDs beforehand
+                        format!("Could not find record with id {} to update in database", curr_id),
+                    ));
+                }
+            }
+            (*curr_page)
+            .borrow_mut()
+            .write_all(bson::to_vec(&document_page)?);
+            pager.flush_page(&(*curr_page).borrow_mut())?;
+
+            return Ok(());
+
+            } else {
+                return Err(Error::NotFound(
+                    format!("Could not find record with id {} to update in database", curr_id),
+                ));
+            }
+          
+        }else {
+            return Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ));
+        }
+               
     }
 
     pub fn get_document_rows_in_range(&self, start: usize, end: usize) -> Result<Records> {
