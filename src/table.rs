@@ -1,6 +1,4 @@
-use core::borrow;
-use std::borrow::Borrow;
-use std::borrow::BorrowMut;
+
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -8,15 +6,11 @@ use std::rc::Rc;
 
 use crate::btree::*;
 use crate::record::*;
-use crate::types::*;
 
-use crate::btree::*;
 use crate::error::*;
 use crate::pager::*;
 use crate::schema::*;
 
-use bson::{bson, Bson};
-use serde::{Deserialize, Serialize};
 
 pub enum TableType {
     Relational,
@@ -83,7 +77,7 @@ impl Table {
             let id = self.curr_row_id;
 
             let schema = match &self.schema {
-                Schema::Relational(x) => x,
+                Schema::Relational(x) => x.clone(),
                 _ => panic!("Unsupported schema type for relational record"),
             };
 
@@ -109,7 +103,7 @@ impl Table {
             }
 
             while i < rows.len() && start_ser_size + new_record_size  < PAGE_SIZE_BYTES {
-                relational_page.add_record(rows[i].clone());
+                relational_page.add_record(rows[i].clone(), self.curr_row_id + i);
                 start_ser_size += new_record_size;
                 i+=1; 
                 if i < rows.len(){
@@ -128,7 +122,7 @@ impl Table {
 
             pager.flush_page(&(*curr_page).borrow_mut())?;
 
-            self.curr_row_id += i;
+            // self.curr_row_id += i;
 
 
             
@@ -143,7 +137,7 @@ impl Table {
                 let mut new_record_size = rows[i].serialize(&schema).len();
 
                 while i < rows.len() && start_ser_size + new_record_size < PAGE_SIZE_BYTES {
-                    new_relational_page.add_record(rows[i].clone());
+                    new_relational_page.add_record(rows[i].clone(), self.curr_row_id + i);
                     start_ser_size += new_record_size;
                     i+=1; 
                     if i < rows.len(){
@@ -161,13 +155,14 @@ impl Table {
                 });
 
                 //TODO: remember, any of these operations can fail at any time, we really need to implement transactions
-                self.curr_row_id += (i - prev);
+               
 
                 pager.flush_page(&new_page)?;
                 
 
                 prev = i;
             }
+            self.curr_row_id += i;
 
             Ok(())
         } else {
@@ -177,6 +172,177 @@ impl Table {
         }
     }
 
+
+    pub fn update_relational_row(&mut self, row: RelationalRecord) -> Result<()> {
+        self.update_relational_rows(vec![row])
+    }
+
+
+    // THE SCHEMA CHECK DDOESNT HAPPEN HERE, BUT AT THE PARSING STAGE INSTEAD
+    pub fn update_relational_rows(&mut self, rows: Vec<RelationalRecord>) -> Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        println!("Updating rows {:?}", rows);
+
+        if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
+            let schema = match &self.schema {
+                Schema::Relational(x) => x.clone(),
+                _ => panic!("Unsupported schema type for relational record"),
+            };
+
+            let mut curr_id = rows[0].id.unwrap();
+            let mut curr_row = rows[0].clone();
+
+            if let Some((page_id, offset, _)) = self.default_index.get(&curr_id) {
+                let mut curr_page = pager.get_page_or_force(*page_id)?;
+                let mut relational_page = RelationalRecordPage::deserialize(
+                    &(*curr_page).borrow_mut().read_all(),
+                    &schema,
+                )?;
+
+                let curr_data = relational_page.records.get(*offset as usize).unwrap();
+                let new_data = curr_row.serialize(&schema);
+
+                if new_data.len() > PAGE_SIZE_BYTES {
+                    return Err(Error::Unknown(
+                        "Record size too large to be written to page".to_string(),
+                    ));
+                }
+
+                if new_data.len() + relational_page.serialize(&schema).len() - curr_data.serialize(&schema).len() > PAGE_SIZE_BYTES {
+                    relational_page.delete_record(curr_id)?;
+                    (*curr_page).borrow_mut().write_all(relational_page.serialize(&schema));
+                    pager.flush_page(&(*curr_page).borrow_mut())?;
+                    self.default_index.remove(&curr_id);
+                    self.insert_relational_row(curr_row)?;
+                 
+                } else {
+                    relational_page.update_record(curr_id, curr_row)?;
+                }
+
+                for i in 1..rows.len() {
+                    curr_id = rows[i].id.unwrap();
+                    curr_row = rows[i].clone();
+
+                    println!("Updating row {:?} with id {}", &curr_row, &curr_id);
+
+                    if let Some((page_id, offset, _)) = self.default_index.get(&curr_id) {
+                        if page_id != &(*curr_page).borrow_mut().index {
+                            (*curr_page).borrow_mut().write_all(relational_page.serialize(&schema));
+                            pager.flush_page(&(*curr_page).borrow_mut())?;
+                            curr_page = pager.get_page_or_force(*page_id)?;
+                            relational_page = RelationalRecordPage::deserialize(
+                                &(*curr_page).borrow_mut().read_all(),
+                                &schema,
+                            )?;
+                        }
+
+                        let curr_data = relational_page.records.get(*offset as usize).unwrap();
+                        let new_data = curr_row.serialize(&schema);
+
+                        if new_data.len() > PAGE_SIZE_BYTES {
+                            return Err(Error::Unknown(
+                                "Record size too large to be written to page".to_string(),
+                            ));
+                        }
+
+                        if new_data.len() + relational_page.serialize(&schema).len() - curr_data.serialize(&schema).len() > PAGE_SIZE_BYTES {
+                            relational_page.delete_record(curr_id)?;
+                            (*curr_page).borrow_mut().write_all(relational_page.serialize(&schema));
+                            pager.flush_page(&(*curr_page).borrow_mut())?;
+                            self.default_index.remove(&curr_id);
+                            self.insert_relational_row(curr_row)?;
+
+                        } else {
+                            relational_page.update_record(curr_id, curr_row)?;
+                        }
+                    } else {
+                        return Err(Error::NotFound(
+                            format!("Could not find record with id {} to update in table", curr_id),
+                        ));
+                    }
+                }
+                println!("All upates made {:?}", relational_page);
+                (*curr_page).borrow_mut().write_all(relational_page.serialize(&schema));
+                pager.flush_page(&(*curr_page).borrow_mut())?;
+                Ok(())
+            } else {
+                Err(Error::NotFound(
+                    format!("Could not find record with id {} to update in table", curr_id),
+                ))
+            }
+        } else {
+            Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ))
+        }
+    }
+
+
+    pub fn delete_relational_row(&mut self, row_id: usize) -> Result<()> {
+        self.delete_relational_rows(vec![row_id])
+    }
+
+    pub fn delete_relational_rows(&mut self, row_ids: Vec<usize>) -> Result<()> {
+        if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
+            let schema = match &self.schema {
+                Schema::Relational(x) => x,
+                _ => panic!("Unsupported schema type for relational record"),
+            };
+
+            let curr_id = row_ids[0];
+
+            if let Some((page_id, _, _)) = self.default_index.get(&curr_id) {
+                let mut curr_page = pager.get_page_or_force(*page_id)?;
+                let mut relational_page = RelationalRecordPage::deserialize(
+                    &(*curr_page).borrow_mut().read_all(),
+                    &schema,
+                )?;
+
+                relational_page.delete_record(curr_id)?;
+                self.default_index.remove(&curr_id);
+
+                for i in row_ids[1..].iter() {
+                    let curr_id = i.clone();
+
+                    if let Some((page_id, _, _)) = self.default_index.get(&curr_id) {
+                        if page_id != &(*curr_page).borrow_mut().index {
+                            (*curr_page).borrow_mut().write_all(relational_page.serialize(&schema));
+                            pager.flush_page(&(*curr_page).borrow_mut())?;
+                            curr_page = pager.get_page_or_force(*page_id)?;
+                            relational_page = RelationalRecordPage::deserialize(
+                                &(*curr_page).borrow_mut().read_all(),
+                                &schema,
+                            )?;
+                        }
+
+                        relational_page.delete_record(curr_id)?;
+                        self.default_index.remove(&curr_id);
+                    } else {
+                        return Err(Error::NotFound(
+                            format!("Could not find record with id {} to delete in table", curr_id),
+                        ));
+                    }
+                }
+
+                println!("All deletions made {:?}", &relational_page);
+
+                (*curr_page).borrow_mut().write_all(relational_page.serialize(&schema));
+                pager.flush_page(&(*curr_page).borrow_mut())?;
+                Ok(())
+            } else {
+                Err(Error::NotFound(
+                    format!("Could not find record with id {} to delete in table", curr_id),
+                ))
+            }
+        } else {
+            Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ))
+        }
+    }
 
 
     /// get the number of free bytes left in a page
@@ -569,7 +735,7 @@ impl Table {
     }
 
     pub fn get_relational_rows_in_range(&self, start: usize, end: usize) -> Result<Records> {
-        let mut records = Vec::new();
+        let mut records = Vec::with_capacity(end-start);
         if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
             // println!("Getting rows in range {} - {}", start, end);
             // println!("Index: {:?}", &self.default_index);
@@ -595,7 +761,8 @@ impl Table {
                                 Err(_) => continue, // Skip if deser fails ? Do we panic instead?
                             };
 
-                            if let Some(record) = relational_page.records.get(*offset as usize) {
+                            //TODO: this should change to just a linear scan through all the records this page has, and then move to the next page
+                            if let Some(record) = relational_page.get_record(*offset as usize) {
                                 // println!("Gotten record {:?} ", &record);
                                 let mut nrecord = record.clone();
                                 nrecord.id = Some(row_id);
@@ -610,8 +777,8 @@ impl Table {
                             
                             if let Some((page_id, offset, _)) = self.default_index.get(&row_id) {
 
-                                if (page_id == &(*page).borrow_mut().index) {
-                                    if let Some(record) = relational_page.records.get(*offset as usize) {
+                                if (page_id == &(*page).borrow().index) {
+                                    if let Some(record) = relational_page.get_record(*offset as usize) {
                                         let mut nrecord = record.clone();
                                         nrecord.id = Some(row_id);
                                         records.push(nrecord.clone());
@@ -627,7 +794,7 @@ impl Table {
                                         Ok(page) => page,
                                         Err(_) => continue, 
                                     };
-                                    if let Some(record) = relational_page.records.get(*offset as usize) {
+                                    if let Some(record) = relational_page.get_record(*offset as usize) {
                                         let mut nrecord = record.clone();
                                         nrecord.id = Some(row_id);
                                         records.push(nrecord.clone());

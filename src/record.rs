@@ -373,7 +373,12 @@ impl RelationalRecord {
             };
             fields.insert(name.clone(), value);
         }
-        Ok(Self { id: None, fields })
+        let id = if offset + 8 <= bytes.len() {
+            Some(usize::from_le_bytes(bytes[offset..offset + 8].try_into()?))
+        } else {
+            None
+        };
+        Ok(Self { id: id, fields })
     }
 
     pub fn serialize(&self, schema: &RelationalSchema) -> Vec<u8> {
@@ -421,6 +426,10 @@ impl RelationalRecord {
                 _ => panic!("Incompatible data type"),
             }
         }
+        //TODO: id should be optional no longer
+        if let Some(id) = self.id {
+            bytes.extend_from_slice(&id.to_le_bytes());
+        }
         bytes
     }
 }
@@ -436,8 +445,10 @@ impl RelationalRecordPage {
         Self { records }
     }
 
-    pub fn add_record(&mut self, record: RelationalRecord) {
-        self.records.push(record);
+    pub fn add_record(&mut self, record: RelationalRecord, id: usize) {
+        let mut nrecord = record;  
+        nrecord.id = Some(id);
+        self.records.push(nrecord);
     }
 
     pub fn get_records(&self) -> &Vec<RelationalRecord> {
@@ -447,6 +458,47 @@ impl RelationalRecordPage {
     pub fn clear_records(&mut self) {
         self.records.clear();
     }
+
+    //TODO: this is an O(n) operation, consider changing
+    pub fn get_record(&self, id: usize) -> Option<&RelationalRecord> {
+        for record in &self.records{
+            if record.id.is_some() {
+                if record.id.unwrap() == id {
+                    return Some(record);
+                }
+            }
+            
+        }
+        return None;
+    }
+
+    pub fn delete_record(&mut self, id:usize) -> Result<()> {
+        for (idx, record) in self.records.iter().enumerate(){
+            if record.id.is_some() {
+                if record.id.unwrap() == id {
+                    println!("Removing record with id {}", record.id.unwrap()); 
+                    self.records.remove(idx); //TODO: worst case O(n), consider changing
+                    return Ok(());  
+                }
+            }
+        }
+        return Err(Error::NotFound("Could not find index to delete record".to_string()));
+    }
+
+    pub fn update_record(&mut self, id:usize, new_record: RelationalRecord) -> Result<()> {
+        println!("All rows {:?}", self.records);
+        for (idx, record) in self.records.iter().enumerate(){
+            if record.id.is_some() {
+                if record.id.unwrap() == id {
+                    self.records[idx] = new_record;
+                    return Ok(());  
+                }
+            } 
+            
+        }
+        return Err(Error::NotFound("Could not find indxe to update record".to_string()));
+    }
+
 
     pub fn serialize(&self, schema: &RelationalSchema) -> Vec<u8> {
         let mut bytes = Vec::new();
@@ -475,7 +527,7 @@ impl RelationalRecordPage {
                 Err(x) => return Ok(Self { records }),
             }
             //TODO, we need to have a better way of handling record fetch failures
-            offset += shift_amount;
+            offset += shift_amount + 8; //8 bits for the id
         }
         Ok(Self { records })
     }
@@ -942,7 +994,7 @@ mod tests {
         record.set_field("name".to_string(), RelationalValue::String("John".to_string()));
 
         let mut page = RelationalRecordPage::new();
-        page.add_record(record);
+        page.add_record(record, 0);
 
         let serialized = page.serialize(&schema);
         let deserialized = RelationalRecordPage::deserialize(&serialized, &schema).unwrap();
@@ -970,12 +1022,12 @@ mod tests {
         let mut record1 = RelationalRecord::new();
         record1.set_field("id".to_string(), RelationalValue::Number(1.0));
         record1.set_field("name".to_string(), RelationalValue::String("John".to_string()));
-        page.add_record(record1);
+        page.add_record(record1, 0);
 
         let mut record2 = RelationalRecord::new();
         record2.set_field("id".to_string(), RelationalValue::Number(2.0));
         record2.set_field("name".to_string(), RelationalValue::String("Jane".to_string()));
-        page.add_record(record2);
+        page.add_record(record2, 2 );
 
         let serialized = page.serialize(&schema);
         let deserialized = RelationalRecordPage::deserialize(&serialized, &schema).unwrap();

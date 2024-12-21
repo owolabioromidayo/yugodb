@@ -220,6 +220,15 @@ pub fn parse_json_to_relational_records(
     //TODO: This is where relational schema validation happens? not the best, no? too late?
 
         for (field_name, field_value) in fields {
+            if (field_name == "id") {
+                    if let serde_json::Value::Number(v) =  field_value  {
+                        record.set_id(v.as_u64().unwrap() as usize);
+                    } else{
+                        return Err(Error::DBMSCall("Invalid ID value provided".to_string()));                        
+                    }
+                
+                    continue;
+            }
             if let Some((field_type, nullable)) = schema.get(&field_name) {
                 let value = match (field_type, field_value) {
                     (RelationalType::Boolean, serde_json::Value::Bool(v)) => {

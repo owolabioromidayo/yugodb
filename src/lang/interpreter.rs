@@ -1082,11 +1082,27 @@ impl Interpreter {
                                             match parse_json_to_document_records(record_str.as_str())
                                             {
                                                 Ok(records) => {
-                                                    let _ =
-                                                        db.update_document_rows(table_name, records);
-                                                    return Ok(());
+                                                    
+                                                    return db.update_document_rows(table_name, records);
+                                                   
                                                 }
                                                 Err(e) => return Err(e),
+                                            }
+                                        }
+                                        TableType::Relational =>{
+                                            match &table.schema {
+                                                Schema::Relational(schema) => { 
+                                                    match parse_json_to_relational_records(record_str.as_str(), schema )
+                                                    {
+                                                        Ok(records) => {
+                                                            
+                                                                return db.update_relational_rows(table_name, records);
+                                                            
+                                                        }
+                                                        Err(e) => return Err(e),
+                                                    }
+                                                } ,
+                                                _  =>  return Err(Error::TypeError("Invalid schema type for relational db".to_string()))
                                             }
                                         }
                                         _ =>{
@@ -1142,6 +1158,9 @@ impl Interpreter {
                                         TableType::Document => { 
                                             return db.delete_document_row(table_name, *record_id as usize);
                                         
+                                        }
+                                        TableType::Relational => {
+                                            return db.delete_relational_row(table_name, *record_id as usize);
                                         }
                                         _ =>{
                                             unimplemented!()
@@ -1206,6 +1225,9 @@ impl Interpreter {
                                         TableType::Document => { 
                                             return db.delete_document_rows(table_name, record_ids);
                                         
+                                        }
+                                        TableType::Relational => {
+                                            return db.delete_relational_rows(table_name, record_ids);
                                         }
                                         _ =>{
                                             unimplemented!()
