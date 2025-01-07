@@ -2,32 +2,17 @@ use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::thread;
 
-use std::collections::HashMap;
-use std::time::Duration;
-use yugodb::lang::parser;
-use yugodb::lang::tokenizer;
-
-use rust_decimal::Decimal;
-use rust_decimal_macros::dec;
-use std::borrow::BorrowMut;
-use std::cell::RefCell;
-use std::rc::Rc;
-use yugodb::btree::*;
-use yugodb::database::*;
 use yugodb::dbms::*;
 use yugodb::error::*;
-use yugodb::lang::ast::*;
+
 use yugodb::lang::interpreter::*;
 use yugodb::lang::parser::*;
 use yugodb::lang::tokenizer::*;
-use yugodb::lang::types::*;
-use yugodb::pager::*;
-use yugodb::record::*;
-use yugodb::schema::*;
-use yugodb::table::*;
-use yugodb::types::RelationalType;
 
-use yugodb::{time_it, timer::Timer};
+use yugodb::record::*;
+
+
+use yugodb::time_it;
 
 use colored::*;
 
@@ -174,26 +159,7 @@ mod tests {
                     '123-456-7890',
                     '987-654-3210'
                 ]
-        }, {
-            'name': 'Jane Smith',
-            'age': 25.0,
-            'city': 'London',
-            'address': {
-                'street': '456 High St',
-                'zip': 'SW1A 1AA'
-            },
-            'phone_numbers': [
-                '020-1234-5678'
-            ],
-            'employment': {
-                'company': 'Acme Inc.',
-                'position': 'Software Engineer',
-                'start_date': {
-                'year': 2022.0,
-                'month': 1.0
-                }
-            }
-            },".repeat(100); 
+        }, ".repeat(100); 
 
         let seq2 = "
           
@@ -216,7 +182,7 @@ mod tests {
         ";
 
         let seq3 = "
-        let x = dbs.test_db.test_table.offset(0);  
+        let x = dbs.test_db.test_table.offset(50);  
         x.limit(50);
         ";
 
@@ -228,7 +194,7 @@ mod tests {
         
         time_it!( "Creating the database: ", {handle_query(seq1.to_string(), &mut dbms) });
         time_it!("Running the insertMany operation: ", {handle_query(seq2.to_string(), &mut dbms) });
-        time_it!("Fetching all the row results: ", {handle_query(seq3.to_string(), &mut dbms) });
+        time_it!("Fetching all the row results: ", {println!("{:?}", handle_query(seq3.to_string(), &mut dbms) )} );
     });
     }
 

@@ -2,17 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::btree::*;
 use crate::database::*;
-use crate::error::*;
-use crate::lang::ast::*;
-use crate::lang::interpreter::*;
-use crate::lang::parser::*;
-use crate::lang::tokenizer::*;
-use crate::lang::types::*;
-use crate::pager::*;
-use crate::record::*;
-use crate::schema::*;
 use crate::table::*;
 
 // use crate::*;

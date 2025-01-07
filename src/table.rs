@@ -542,6 +542,9 @@ impl Table {
     }
 
 
+
+
+
     pub fn update_document_rows(&mut self, rows: Vec<DocumentRecord>) -> Result<()> {
         if rows.len() == 0 {
             return Ok(())
@@ -777,7 +780,7 @@ impl Table {
                             
                             if let Some((page_id, offset, _)) = self.default_index.get(&row_id) {
 
-                                if (page_id == &(*page).borrow().index) {
+                                if page_id == &(*page).borrow().index {
                                     if let Some(record) = relational_page.get_record(*offset as usize) {
                                         let mut nrecord = record.clone();
                                         nrecord.id = Some(row_id);
@@ -836,6 +839,387 @@ impl Table {
         }
         // match based on the schema and document model, figure out what to do
     }
+
+
+    //COLUMNAR STUFF
+
+    pub fn insert_columnar_document_row(&mut self, row: ColumnarDocumentRecord) -> Result<()> {
+        self.insert_columnar_document_rows(vec![row])
+    }
+
+    pub fn insert_columnar_document_rows(&mut self, rows: Vec<ColumnarDocumentRecord>) -> Result<()> {
+
+         // insert rows until the last page is filled
+         if let Ok(mut pager) = Rc::clone(&self.pager).try_borrow_mut() {
+
+            let id = self.curr_row_id;
+            let curr_page = &(*(pager.get_page_or_force(self.curr_page_id)?));
+            let mut document_page =
+                match ColumnarDocumentRecordPage::deserialize(&curr_page.borrow_mut().read_all()) {
+                    Ok(page) => page,
+                    Err(_) => ColumnarDocumentRecordPage::new(),
+                };
+
+            let mut i = 0;
+            
+            let mut start_ser_size =  bson::to_vec(&document_page)?.len();
+            let mut new_record_size = rows[i].serialize()?.len();
+
+    
+            while i < rows.len() && start_ser_size + new_record_size  < PAGE_SIZE_BYTES {
+                document_page.add_record(rows[i].clone(), self.curr_row_id + i );
+                start_ser_size += new_record_size;
+                i+=1; 
+                if i < rows.len(){
+                    new_record_size = rows[i].serialize()?.len();
+                }
+            }
+
+            curr_page
+                .borrow_mut()
+                .write_all(bson::to_vec(&document_page)?);
+            (id..id+i).for_each(|idx | {
+                self.default_index
+                .insert(idx.clone(), (self.curr_page_id, idx.clone() as u8, 0));
+            });
+
+            pager.flush_page(&(*curr_page).borrow_mut())?;
+
+            
+
+            // persist the remaining rows
+            let mut prev = i;
+            while i < rows.len() {
+                
+                //create a new page
+                 let new_page = pager.create_new_page()?;
+                 let mut new_document_page = ColumnarDocumentRecordPage::new();
+
+                 let mut start_ser_size =  bson::to_vec(&new_document_page)?.len();
+                 let mut new_record_size = rows[i].serialize()?.len();
+
+                 while i < rows.len() && start_ser_size + new_record_size < PAGE_SIZE_BYTES {
+                    new_document_page.add_record(rows[i].clone(), self.curr_row_id + i);
+                    start_ser_size += new_record_size;
+                    i+=1; 
+                    if i < rows.len(){
+                        new_record_size = rows[i].serialize()?.len();
+                    }
+                }
+
+                new_page.write_all(bson::to_vec(&new_document_page)?);
+
+                self.curr_page_id += 1;
+                self.page_index.insert(new_page.index, self.curr_page_id);
+                (id + prev.. id+i).for_each(|idx | {
+                    self.default_index
+                    .insert(idx.clone(), (self.curr_page_id, idx.clone() as u8, 0));
+                });
+
+                //TODO: remember, any of these operations can fail at any time, we really need to implement transactions
+                // self.curr_row_id += (i - prev);
+
+                pager.flush_page(&new_page)?;
+                
+               
+                prev = i;
+            }
+
+            self.curr_row_id += i;
+
+       
+            Ok(())
+        } else {
+            return Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ));
+        }
+    }
+
+
+    pub fn update_columnar_document_row(&mut self, row: ColumnarDocumentRecord) -> Result<()> {
+        self.update_columnar_document_rows(vec![row])
+    }
+
+    pub fn update_columnar_document_rows(&mut self, rows: Vec<ColumnarDocumentRecord>) -> Result<()> {
+        if rows.len() == 0 {
+            return Ok(())
+        }
+
+        if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
+
+            //update first, store temp page
+            let curr_id = rows[0].id.unwrap();
+            let curr_row = rows[0].clone();
+            
+            if let Some((page_id, _, _)) = self.default_index.get(&curr_id) { 
+                let mut curr_page = pager.get_page_or_force(*page_id)?;
+                let mut document_page = ColumnarDocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all())?; 
+
+                let curr_data = document_page.get_record(curr_id).unwrap() ;
+                let new_data = curr_row.serialize()?;
+                let document_page_len =  document_page.serialize()?.len(); 
+
+                if new_data.len() > PAGE_SIZE_BYTES {
+                    return Err(Error::Unknown(
+                        "Document size too large to be written to page".to_string(),
+                    ));
+                }
+
+                if new_data.len() + document_page_len - curr_data.serialize()?.len() > PAGE_SIZE_BYTES {
+                        // we dont need to do anything, this becomes an insert_document_row operation
+
+                           //delete the current record and write in another page then
+                            // we cant delete then fail, we should delete after a successful insertion
+                            //TODO: otoh, we can't now have both a failed delete and a new insertion, the entire operation should roll back in that case 
+                            document_page.delete_record(curr_id)?; 
+                           
+                            (*curr_page)
+                            .borrow_mut()
+                            .write_all(bson::to_vec(&document_page)?);
+
+                            pager.flush_page(&(*curr_page).borrow_mut())?;
+
+                            self.default_index.remove(&curr_id); 
+
+                            self.insert_columnar_document_row(curr_row)?;
+
+                            
+                } else {
+                       //otherwise, we just remove the current record from the page and replace it
+                        document_page.update_record(curr_id, curr_row)?;
+
+                        // (*curr_page)
+                        // .borrow_mut()
+                        // .write_all(bson::to_vec(&document_page)?);
+
+                        // pager.flush_page(&(*curr_page).borrow_mut())?;
+
+                }
+                //update the remaining
+                for i in 1..rows.len() { 
+                    let curr_id = rows[i].id.unwrap();
+                    let curr_row = rows[i].clone();
+
+                    if let Some((page_id, _, _)) = self.default_index.get(&curr_id) { 
+                        if !(page_id == &(*curr_page).borrow_mut().index) { 
+                            // update curr page if needed
+                             //flush the page                
+                            (*curr_page)
+                            .borrow_mut()
+                            .write_all(bson::to_vec(&document_page)?);
+
+                            pager.flush_page(&(*curr_page).borrow_mut())?;
+                            curr_page = pager.get_page_or_force(*page_id)?;
+
+                            document_page = ColumnarDocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all())?;
+                        } 
+
+                        let curr_data = document_page.get_record(curr_id).unwrap() ;
+                        let new_data = curr_row.serialize()?;
+                        let document_page_len =  document_page.serialize()?.len(); 
+
+                        if new_data.len() > PAGE_SIZE_BYTES {
+                            return Err(Error::Unknown(
+                                "Document size too large to be written to page".to_string(),
+                            ));
+                        }
+
+                        if new_data.len() + document_page_len - curr_data.serialize()?.len() > PAGE_SIZE_BYTES {
+
+                                    document_page.delete_record(curr_id)?; 
+                                
+                                    (*curr_page)
+                                    .borrow_mut()
+                                    .write_all(bson::to_vec(&document_page)?);
+
+                                    pager.flush_page(&(*curr_page).borrow_mut())?;
+
+                                    self.default_index.remove(&curr_id); 
+
+                                    self.insert_columnar_document_row(curr_row)?;
+
+                                    
+                        } else {
+                            println!("Updated record in page with {:?}", &curr_row);
+                                document_page.update_record(curr_id, curr_row)?;
+                                println!("{:?}", &document_page.records );
+
+                        }
+                } else {
+                    return Err(Error::NotFound(
+                        //TODO: there should be a rollback at this point, or confirmation of all IDs beforehand
+                        format!("Could not find record with id {} to update in database", curr_id),
+                    ));
+                }
+            }
+            (*curr_page)
+            .borrow_mut()
+            .write_all(bson::to_vec(&document_page)?);
+            pager.flush_page(&(*curr_page).borrow_mut())?;
+
+            return Ok(());
+
+            } else {
+                return Err(Error::NotFound(
+                    format!("Could not find record with id {} to update in database", curr_id),
+                ));
+            }
+          
+        }else {
+            return Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ));
+        }
+               
+    }
+
+
+    pub fn delete_columnar_document_row(&mut self, row_id: usize) -> Result<()> {
+        self.delete_columnar_document_rows(vec![row_id])
+    }
+
+    pub fn delete_columnar_document_rows(&mut self, row_ids: Vec<usize>) -> Result<()> {
+
+        if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
+
+            let curr_id = row_ids[0 ];
+
+            if let Some((page_id, _, _)) = self.default_index.get(&curr_id) { 
+                let mut curr_page =pager.get_page_or_force(*page_id)?;
+                let mut document_page = ColumnarDocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all())?;        
+
+                //just delete from the page and reserialize
+                // println!("Getting rid of {} in {:?} ", row_id, document_page); 
+
+                document_page.delete_record(curr_id)?;
+
+                // println!("Gotten rid of {} in {:?} ", row_id, document_page); 
+
+
+                //remove idx from default index
+                self.default_index.remove(&curr_id);
+
+
+                for i in row_ids[1..].iter() {
+                    let curr_id = i.clone(); 
+
+                    if let Some((page_id, _, _)) = self.default_index.get(&curr_id) { 
+                        if !(page_id == &(*curr_page).borrow_mut().index) { 
+                            // update curr page if needed
+                             //flush the intermediary page                
+                            (*curr_page)
+                            .borrow_mut()
+                            .write_all(bson::to_vec(&document_page)?);
+
+                            pager.flush_page(&(*curr_page).borrow_mut())?;
+
+                            curr_page = pager.get_page_or_force(*page_id)?;
+                            document_page = ColumnarDocumentRecordPage::deserialize(&(*curr_page).borrow_mut().read_all())?;
+                        } 
+
+                        document_page.delete_record(curr_id)?;
+                        self.default_index.remove(&curr_id);
+                } else {
+                    return Err(Error::NotFound(
+                        format!("Could not find record with id {} to delete in table", curr_id),
+                    ));
+                }
+                
+                //flush the last page                
+                (*curr_page)
+                .borrow_mut()
+                .write_all(bson::to_vec(&document_page)?);
+
+
+                pager.flush_page(&(*curr_page).borrow_mut())?;
+            }
+                
+            return Ok(());
+
+
+            }else {
+                return Err(Error::NotFound(
+                    format!("Could not find record with id {} to delete in table", curr_id),
+                ));
+            }
+          
+        }else {
+            return Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ));
+        }
+               
+    }
+
+
+
+    pub fn get_columnar_document_rows_in_range(&self, start: usize, end: usize) -> Result<Records> {
+        let mut records: Vec<ColumnarDocumentRecord> = Vec::with_capacity(end-start);
+
+        if let Ok(pager) = Rc::clone(&self.pager).try_borrow_mut() {
+            // println!("Getting rows in range {} - {}", start, end);
+            // println!("Index: {:?}", &self.default_index);
+
+            let mut row_id: usize = start;
+            //get first row that actually exists
+                while row_id < end  {
+
+                    if let Some((page_id, offset, _)) = self.default_index.get(&row_id) { 
+                        let mut page = pager.get_page_or_force(*page_id)?;
+                        let mut document_page = ColumnarDocumentRecordPage::deserialize(&(*page).borrow_mut().read_all())?; 
+
+        
+                        if let Some(record) = document_page.get_record(*offset as usize) {
+                            records.push(record.clone());
+                        }
+
+                        row_id += 1;
+        
+                        //try to get all successive rows
+                        while row_id < end { 
+                            if let Some((page_id, offset, _)) = self.default_index.get(&row_id) { 
+                                if (page_id == &(*page).borrow_mut().index) {
+                                    if let Some(record) = document_page.get_record(*offset as usize) {
+                                        records.push(record.clone());
+                                    }  
+                                } else {
+                                    // get the new page
+                                    page = pager.get_page_or_force(*page_id)?;
+                                    document_page = ColumnarDocumentRecordPage::deserialize(&(*page).borrow_mut().read_all())?; 
+                    
+                                    if let Some(record) = document_page.get_record(*offset as usize) {
+                                        records.push(record.clone());
+                                    }
+        
+                                }
+                            }
+                            
+                            row_id += 1;
+        
+                        }
+                    } else {
+                        row_id += 1;
+                    }
+         
+            } 
+            return Ok(Records::DocumentColumns(records))
+        }
+        else {
+            return Err(Error::Unknown(
+                "Failed to borrow cache mutably from here".to_string(),
+            ));
+
+    }
+    }
+
+
+
+
+
+
+
+
 
     pub fn insert_rows() {}
     pub fn delete_row() {}

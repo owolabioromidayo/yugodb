@@ -1,20 +1,9 @@
 // CURRENTLY NOT BEING USED
 
 
-
-
-
-use std::borrow::BorrowMut;
-use std::hash::Hash;
-use std::ops::Deref;
 use std::vec::Vec;
 use crate::lang::types::*; 
-use crate::lang::tokenizer::*; 
-use crate::lang::parser::*; 
-use crate::error::*;
 use std::collections::HashMap;
-
-use crate::lang::typechecker::*;
 
 
 
@@ -25,13 +14,13 @@ pub enum JoinType{
 }
 
 impl JoinType{
-    fn from_token(token: &Token) -> Self {
-        match token._type {
-            TokenType::Ljoin => JoinType::LJoin, 
-            TokenType::Join => JoinType::Join, 
-            _ => panic!("Unsupported join type")
-        }
-    }
+    // fn from_token(token: &Token) -> Self {
+    //     match token._type {
+    //         TokenType::Ljoin => JoinType::LJoin, 
+    //         TokenType::Join => JoinType::Join, 
+    //         _ => panic!("Unsupported join type")
+    //     }
+    // }
 }
 
 #[derive(Debug, Clone)]
@@ -146,7 +135,7 @@ impl AST  {
 
 
                 // method chaining resolution should be done here
-                if (expr.methods.len() > 1) { 
+                if expr.methods.len() > 1 { 
                     for i in 1..expr.methods.len() {
                         let curr = expr.methods[i];                         
                         let prev = expr.methods[i-1];       
@@ -166,7 +155,7 @@ impl AST  {
                              
                 Some(Node {
                     _type: NodeType::Source, 
-                        data : NodeData::Source((Source{source: Expr::DataCall((*expr).clone()) })),
+                        data : NodeData::Source(Source{source: Expr::DataCall((*expr).clone()) }),
                         children: Vec::new()
                     }) 
 
@@ -175,16 +164,16 @@ impl AST  {
             Expr::DataExpr(expr) => { 
                 //create a join node
 
-                let left_node: Option<Node> = self.generate_from_expr(expr.left.as_ref());
+                // let left_node: Option<Node> = self.generate_from_expr(expr.left.as_ref());
 
-                let right_node= self.generate_from_expr(expr.right.as_ref());
+                // let right_node= self.generate_from_expr(expr.right.as_ref());
 
 
                 Some(Node {
                     _type: NodeType::Join, 
                         // data : NodeData::Join((Join{_type : JoinType::from_token(&expr.join), predicate: *(expr.join_expr).clone(), dataexpr: (*expr).clone() })),
                         // children: vec![left_node, right_node]
-                        data : NodeData::Join((Join{dataexpr: (*expr).clone() })),
+                        data : NodeData::Join(Join{dataexpr: (*expr).clone() }),
                         children: vec![]
                 })
 
@@ -256,7 +245,7 @@ impl AST  {
                         self.root = Some(
                             Node {
                             _type: NodeType::Projection, 
-                                data : NodeData::Projection((Projection{expr: x})),
+                                data : NodeData::Projection(Projection{expr: x}),
                                 children: Vec::new()
                             }
                         ); 
@@ -312,6 +301,8 @@ impl AST  {
 
 #[cfg(test)]
 mod tests {
+    use crate::lang::{parser::Parser, tokenizer::Tokenizer};
+
     use super::*;
 
     #[test]

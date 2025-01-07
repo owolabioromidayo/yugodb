@@ -1,10 +1,7 @@
-use std::borrow::BorrowMut;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::btree::*;
 use crate::database::*;
 use crate::dbms::*;
 use crate::error::*;
@@ -12,7 +9,6 @@ use crate::lang::ast::*;
 use crate::lang::parser::*;
 use crate::lang::types::*;
 use crate::pager::*;
-use crate::record;
 use crate::record::*;
 use crate::record_iterator::*;
 use crate::schema::*;
@@ -107,7 +103,7 @@ pub struct Interpreter {
 impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for Interpreter {
     fn visit_binary(&self, expr: &Binary) -> Result<Literal> {
         let mut left = self.evaluate_lower(&expr.left)?;
-        let mut right = self.evaluate_lower(&expr.right)?;
+        let right = self.evaluate_lower(&expr.right)?;
 
         match (&left.value.value_type, &right.value.value_type) {
             (ValueType::Number, ValueType::Number) => {
@@ -423,15 +419,15 @@ impl ExprVisitor<Result<IterClosure>, Result<Literal>, Result<IterClosure>> for 
             }
         }
 
-        let mut pred = Box::leak(Box::new(
+        let pred = Box::leak(Box::new(
             self.generate_predicate(&expr.methods, &expr.arguments)?,
         ));
 
         //check the table
-        let mut y = RefCell::new(RecordIterator::new(DEFAULT_CHUNK_SIZE, db_name, table_name));
+        let y = RefCell::new(RecordIterator::new(DEFAULT_CHUNK_SIZE, db_name, table_name));
 
         // hack to help out with the closure lifetime issue
-        let mut y_static = Box::leak(Box::new(y));
+        let y_static = Box::leak(Box::new(y));
 
         Ok(IterClosure {
             get_next_chunk: Rc::new(|dbms, hpred| {
@@ -797,7 +793,7 @@ impl Interpreter {
                                     &resolved_args[3].value.value,
                                 ) {
                                     //try fetch db
-                                    let mut db = match dbms.databases.get_mut(db_name) {
+                                    let db = match dbms.databases.get_mut(db_name) {
                                         Some(x) => x,
                                         _ => {
                                             return Err(Error::DBMSCall(

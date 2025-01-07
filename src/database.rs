@@ -4,10 +4,7 @@ use std::collections::HashMap;
 use crate::record::DocumentRecord;
 use crate::table::*;
 use crate::error::*;
-use std::rc::Rc;
-use std::cell::RefCell;
 use crate::record::*;
-use crate::pager::Pager;
 
 
 
@@ -100,7 +97,6 @@ impl Database {
 
 
 
-
     pub fn insert_document_rows(&mut self, table_name: &String, rows:Vec<DocumentRecord>) -> Result<()> {
         match self.tables.get_mut(table_name) {
  
@@ -110,6 +106,7 @@ impl Database {
          None => Err(Error::Unknown("Table not found".to_string())), 
         }
      }
+
 
      pub fn update_document_rows(&mut self, table_name: &String, rows:Vec<DocumentRecord>) -> Result<()> {
         match self.tables.get_mut(table_name) {
@@ -187,6 +184,58 @@ impl Database {
          None => Err(Error::Unknown("Table not found".to_string())), 
         }
      }
+
+
+     pub fn insert_columnar_document_row(&mut self, table_name: &String, row:ColumnarDocumentRecord) -> Result<()> {
+        match self.tables.get_mut(table_name) {
+ 
+         Some(x) =>  {
+             x.insert_columnar_document_row(row)
+         },
+         None => Err(Error::Unknown("Table not found".to_string())), 
+        }
+     }
+
+     pub fn insert_columnar_document_rows(&mut self, table_name: &String, rows:Vec<ColumnarDocumentRecord>) -> Result<()> {
+        match self.tables.get_mut(table_name) {
+ 
+         Some(x) =>  {
+             x.insert_columnar_document_rows(rows)
+         },
+         None => Err(Error::Unknown("Table not found".to_string())), 
+        }
+     }
+
+    pub fn update_columnar_document_row(&mut self, table_name: &String, row: ColumnarDocumentRecord) -> Result<()> {
+        match self.tables.get_mut(table_name) {
+            Some(x) => x.update_columnar_document_row(row),
+            None => Err(Error::Unknown("Table not found".to_string())),
+        }
+    }
+
+    pub fn update_columnar_document_rows(&mut self, table_name: &String, rows: Vec<ColumnarDocumentRecord>) -> Result<()> {
+        match self.tables.get_mut(table_name) {
+            Some(x) => x.update_columnar_document_rows(rows),
+            None => Err(Error::Unknown("Table not found".to_string())),
+        }
+    }
+
+    pub fn delete_columnar_document_row(&mut self, table_name: &String, row_id: usize) -> Result<()> {
+        match self.tables.get_mut(table_name) {
+            Some(x) => x.delete_columnar_document_row(row_id),
+            None => Err(Error::Unknown("Table not found".to_string())),
+        }
+    }
+
+    pub fn delete_columnar_document_rows(&mut self, table_name: &String, row_ids: Vec<usize>) -> Result<()> {
+        match self.tables.get_mut(table_name) {
+            Some(x) => x.delete_columnar_document_rows(row_ids),
+            None => Err(Error::Unknown("Table not found".to_string())),
+        }
+    }
+
+
+
 
     pub fn get_rows_in_range(&mut self, table_name: &String, start:usize, end:usize) -> Result<Records> {
        match self.tables.get_mut(table_name) {

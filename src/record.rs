@@ -185,8 +185,6 @@ impl DocumentRecordPage {
         return Err(Error::NotFound("Could not find index to delete record".to_string()));
     }
 
-    //TODO: update records and delete records
-
 
 
     pub fn clear_records(&mut self) {
@@ -548,8 +546,8 @@ impl RelationalRecordPage {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ColumnarDocumentRecord {
     //TODO : ensure that this holds for other record types (no pub id, or values)
-    id: Option<usize>, // is usize large enough?
-    value: DocumentValue,
+    pub id: Option<usize>, // is usize large enough?
+    pub value: DocumentValue,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -591,14 +589,14 @@ impl ColumnarDocumentRecord {
     pub fn serialize(&self) -> Result<Vec<u8>> {
         match bson::to_vec(&self) {
             Ok(res) => Ok(res),
-            Err(err) => return Err(Error::SerializationError),
+            Err(_) => return Err(Error::SerializationError),
         }
     }
 
     pub fn deserialize(s: &Vec<u8>) -> Result<Self> {
         match bson::from_slice(s) {
             Ok(res) => return Ok(res),
-            Err(err) => return Err(Error::SerializationError),
+            Err(_) => return Err(Error::SerializationError),
         }
     }
 }
@@ -614,13 +612,55 @@ impl ColumnarDocumentRecordPage {
         Self { records }
     }
 
-    pub fn add_record(&mut self, record: ColumnarDocumentRecord) {
-        self.records.push(record);
+    pub fn add_record(&mut self, record: ColumnarDocumentRecord , id: usize) {
+        let mut nrecord = record;
+        nrecord.id = Some(id);
+        self.records.push(nrecord);
     }
 
     pub fn get_records(&self) -> &Vec<ColumnarDocumentRecord> {
         &self.records
     }
+
+    pub fn get_record(&self, id: usize) -> Option<&ColumnarDocumentRecord> {
+        for record in &self.records{
+            if record.id.is_some() {
+                if record.id.unwrap() == id {
+                    return Some(record);
+                }
+            }
+            
+        }
+        return None;
+    }
+
+
+    pub fn update_record(&mut self, id:usize, new_record: ColumnarDocumentRecord) -> Result<()> {
+        for (idx, record) in self.records.iter().enumerate(){
+            if record.id.is_some() {
+                if record.id.unwrap() == id {
+                    self.records[idx] = new_record;
+                    return Ok(());  
+                }
+            } 
+            
+        }
+        return Err(Error::NotFound("Could not find indxe to update record".to_string()));
+    }
+
+    pub fn delete_record(&mut self, id:usize) -> Result<()> {
+        for (idx, record) in self.records.iter().enumerate(){
+            if record.id.is_some() {
+                if record.id.unwrap() == id {
+                    println!("Removing record with id {}", record.id.unwrap()); 
+                    self.records.remove(idx); //TODO: worst case O(n), consider changing
+                    return Ok(());  
+                }
+            }
+        }
+        return Err(Error::NotFound("Could not find index to delete record".to_string()));
+    }
+
 
     pub fn clear_records(&mut self) {
         self.records.clear();
